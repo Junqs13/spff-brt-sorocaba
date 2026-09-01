@@ -130,6 +130,8 @@ def obter_posicoes_da_rota(id_rota: str):
 class ReporteIn(BaseModel):
     id_rota: str
     tipo_problema: str
+    latitude: float
+    longitude: float
     comentario: str = None
 
 @app.post("/reportes")
@@ -139,15 +141,30 @@ def criar_reporte(dados: ReporteIn):
         cursor = conn.cursor()
         
         sql = """
-            INSERT INTO reportes_comunidade (id_rota, tipo_problema, comentario)
-            VALUES (%s, %s, %s)
+            INSERT INTO reportes_comunidade (id_rota, tipo_problema, latitude, longitude, comentario)
+            VALUES (%s, %s, %s, %s, %s)
         """
-        valores = (dados.id_rota, dados.tipo_problema, dados.comentario)
+        valores = (dados.id_rota, dados.tipo_problema, dados.latitude, dados.longitude, dados.comentario)
         
         cursor.execute(sql, valores)
         conn.commit()
         cursor.close()
         
-        return {"status": "Sucesso", "mensagem": "Alerta da comunidade registrado com sucesso!"}
+        return {"status": "Sucesso", "mensagem": "Alerta da comunidade registrado!"}
     except Exception as erro:
         raise HTTPException(status_code=500, detail=f"Erro ao salvar reporte no MySQL: {erro}")
+
+# NOVA ROTA: Retorna todos os reportes para gerar o Mapa de Calor
+@app.get("/reportes")
+def listar_reportes():
+    try:
+        conn = db_manager.get_mysql_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        cursor.execute("SELECT tipo_problema, latitude, longitude FROM reportes_comunidade WHERE latitude IS NOT NULL")
+        ocorrencias = cursor.fetchall()
+        cursor.close()
+        
+        return {"ocorrencias": ocorrencias}
+    except Exception as erro:
+        raise HTTPException(status_code=500, detail=f"Erro ao buscar reportes: {erro}")
