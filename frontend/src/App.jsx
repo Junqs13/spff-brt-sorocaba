@@ -3,8 +3,12 @@ import { MapContainer, TileLayer, Marker, Popup, useMap, Polyline, CircleMarker 
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 
-const IconeLivre = L.divIcon({ className: 'custom-div-icon', html: '<div class="icone-onibus onibus-livre">🚌</div>', iconSize: [34, 34], iconAnchor: [17, 17] });
-const IconeAtrasado = L.divIcon({ className: 'custom-div-icon', html: '<div class="icone-onibus onibus-atrasado">🚌</div>', iconSize: [34, 34], iconAnchor: [17, 17] });
+// ÍCONES DIFERENTES (Centro Livre/Atrasado e Bairro Livre/Atrasado)
+const IconeCentroLivre = L.divIcon({ className: 'custom-div-icon', html: '<div class="icone-onibus onibus-livre">🚌</div>', iconSize: [34, 34], iconAnchor: [17, 17] });
+const IconeCentroAtrasado = L.divIcon({ className: 'custom-div-icon', html: '<div class="icone-onibus onibus-atrasado">🚌</div>', iconSize: [34, 34], iconAnchor: [17, 17] });
+const IconeBairroLivre = L.divIcon({ className: 'custom-div-icon', html: '<div class="icone-onibus onibus-livre">🚍</div>', iconSize: [34, 34], iconAnchor: [17, 17] });
+const IconeBairroAtrasado = L.divIcon({ className: 'custom-div-icon', html: '<div class="icone-onibus onibus-atrasado">🚍</div>', iconSize: [34, 34], iconAnchor: [17, 17] });
+
 const IconeUsuario = L.divIcon({ className: 'custom-div-icon', html: '<div class="icone-usuario usuario-gps">🙋‍♂️</div>', iconSize: [34, 34], iconAnchor: [17, 17] });
 
 function RecenterAutomatically({ lat, lon, seguirVeiculo }) {
@@ -43,12 +47,11 @@ function App() {
   const [tipoProblema, setTipoProblema] = useState("Lotação Máxima");
   const [comentarioReporte, setComentarioReporte] = useState("");
 
-  // NOVOS ESTADOS PARA O MAPA DE CALOR
   const [visaoGestao, setVisaoGestao] = useState(false);
   const [mapaCalor, setMapaCalor] = useState([]);
 
   const rotaComLentidao = frotaAtual.some(onibus => onibus.atraso_previsto_minutos > 0);
-  const corPrincipal = visaoGestao ? "#f97316" : (rotaComLentidao ? "#ff0055" : "#00ffcc"); // Laranja para visão gestão
+  const corPrincipal = visaoGestao ? "#f97316" : (rotaComLentidao ? "#ff0055" : "#00ffcc");
 
   const falarTexto = (texto) => {
     if ('speechSynthesis' in window) {
@@ -93,7 +96,6 @@ function App() {
     setAlertaDisparado(false);
   }, [rotaSelecionada]);
 
-  // Busca as ocorrências para o mapa de calor quando o modo Gestão é ativado
   useEffect(() => {
     if (visaoGestao) {
       fetch("http://127.0.0.1:8000/reportes")
@@ -122,7 +124,7 @@ function App() {
 
   useEffect(() => {
     const buscarFrota = async () => {
-      if (visaoGestao) return; // Se for visão gestão, pausa a busca por ônibus
+      if (visaoGestao) return;
       try {
         const resposta = await fetch(`http://127.0.0.1:8000/veiculos/ativos/${rotaSelecionada}`);
         const dados = await resposta.json();
@@ -156,7 +158,6 @@ function App() {
 
   const enviarReporte = async (e) => {
     e.preventDefault();
-    // Usa o GPS do usuário se tiver, senão usa o centro do mapa atual (para o teste funcionar)
     const latReporte = posicaoUsuario ? posicaoUsuario.lat : posicaoCentro.lat;
     const lonReporte = posicaoUsuario ? posicaoUsuario.lon : posicaoCentro.lon;
 
@@ -176,11 +177,20 @@ function App() {
         alert("✅ Alerta enviado! Ele agora fará parte do Mapa de Calor da cidade.");
         setMostrarModalReporte(false);
         setComentarioReporte("");
-        if (visaoGestao) { // Atualiza o mapa na hora se o prefeito estiver olhando
+        if (visaoGestao) { 
             fetch("http://127.0.0.1:8000/reportes").then(res=>res.json()).then(data=>setMapaCalor(data.ocorrencias));
         }
       }
     } catch (erro) { alert("Erro de conexão."); }
+  };
+
+  // FUNÇÃO PARA ESCOLHER O ÍCONE CORRETO BASEADO NO SENTIDO E ATRASO
+  const getIconeOnibus = (onibus) => {
+    if (onibus.sentido === "Centro") {
+        return onibus.atraso_previsto_minutos > 0 ? IconeCentroAtrasado : IconeCentroLivre;
+    } else {
+        return onibus.atraso_previsto_minutos > 0 ? IconeBairroAtrasado : IconeBairroLivre;
+    }
   };
 
   return (
@@ -208,7 +218,6 @@ function App() {
           <button onClick={lerStatusEmVoz} style={{ backgroundColor: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.3)", borderRadius: "50%", width: "36px", height: "36px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.2rem" }} title="Ouvir Status (Acessibilidade)">🔊</button>
         </div>
         
-        {/* BOTÃO MODO GESTÃO */}
         <button 
           onClick={() => setVisaoGestao(!visaoGestao)}
           style={{
@@ -250,6 +259,19 @@ function App() {
                         <span>📍 Distância do veículo:</span> <span style={{ fontWeight: "bold" }}>{distanciaMetros} metros</span>
                         </p>
                     )}
+                    </div>
+
+                    {/* LEGENDA DO MAPA */}
+                    <div style={{ padding: "10px", backgroundColor: "rgba(0,0,0,0.3)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "8px", fontSize: "0.75rem", color: "#94a3b8" }}>
+                        <p style={{ margin: "0 0 5px 0", fontWeight: "bold", color: "#cbd5e1", textTransform: "uppercase" }}>Legenda do Mapa</p>
+                        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
+                            <span>🚌 Sentido Centro</span>
+                            <span>🚍 Sentido Bairro</span>
+                        </div>
+                        <div style={{ display: "flex", justifyContent: "space-between" }}>
+                            <span><span style={{color: "#00ffcc"}}>🟢</span> Fluxo Livre</span>
+                            <span><span style={{color: "#ff0055"}}>🔴</span> Atraso/Lentidão</span>
+                        </div>
                     </div>
 
                     <div style={{ display: "flex", gap: "10px", marginTop: "5px" }}>
@@ -318,20 +340,23 @@ function App() {
       <MapContainer center={[posicaoCentro.lat, posicaoCentro.lon]} zoom={14} zoomControl={false} style={{ height: "100%", width: "100%", zIndex: 1 }}>
         <TileLayer className="map-tiles" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
         
-        {/* RENDERIZA ÔNIBUS (Apenas se NÃO for Visão Gestão) */}
+        {/* RENDERIZA ÔNIBUS COM OS ÍCONES DE DIREÇÃO */}
         {!visaoGestao && frotaAtual.map((onibus) => (
-            <Marker key={onibus.id_veiculo} position={[onibus.latitude, onibus.longitude]} icon={onibus.atraso_previsto_minutos > 0 ? IconeAtrasado : IconeLivre}>
-              <Popup><b>Veículo: {onibus.id_veiculo}</b><br/>Velocidade: {onibus.velocidade_atual_kmh} km/h</Popup>
+            <Marker key={onibus.id_veiculo} position={[onibus.latitude, onibus.longitude]} icon={getIconeOnibus(onibus)}>
+              <Popup>
+                <b>Veículo: {onibus.id_veiculo}</b><br/>
+                Sentido: {onibus.sentido} <br/>
+                Velocidade: {onibus.velocidade_atual_kmh} km/h
+              </Popup>
             </Marker>
         ))}
 
-        {/* RENDERIZA MAPA DE CALOR (Apenas se Visão Gestão estiver ON) */}
         {visaoGestao && mapaCalor.map((oco, index) => (
             <CircleMarker 
               key={index} 
               center={[oco.latitude, oco.longitude]} 
-              radius={30} // Tamanho da mancha
-              pathOptions={{ color: 'transparent', fillColor: '#ef4444', fillOpacity: 0.4 }} // Efeito de calor (sobreposição escurece a cor)
+              radius={30} 
+              pathOptions={{ color: 'transparent', fillColor: '#ef4444', fillOpacity: 0.4 }} 
             >
               <Popup><b>Ocorrência:</b> {oco.tipo_problema}</Popup>
             </CircleMarker>
