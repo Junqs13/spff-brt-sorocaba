@@ -1,16 +1,35 @@
+// ============================================================================
+// 1. IMPORTAÇÕES
+// ============================================================================
 import { useEffect, useState } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, useMap, Polyline, CircleMarker } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 
-// ÍCONES DIFERENTES (Centro Livre/Atrasado e Bairro Livre/Atrasado)
+// ============================================================================
+// 2. CONFIGURAÇÃO DE ÍCONES (Leaflet)
+// ============================================================================
+// Ícones customizados para os ônibus dependendo do sentido e status de atraso
 const IconeCentroLivre = L.divIcon({ className: 'custom-div-icon', html: '<div class="icone-onibus onibus-livre">🚌</div>', iconSize: [34, 34], iconAnchor: [17, 17] });
 const IconeCentroAtrasado = L.divIcon({ className: 'custom-div-icon', html: '<div class="icone-onibus onibus-atrasado">🚌</div>', iconSize: [34, 34], iconAnchor: [17, 17] });
 const IconeBairroLivre = L.divIcon({ className: 'custom-div-icon', html: '<div class="icone-onibus onibus-livre">🚍</div>', iconSize: [34, 34], iconAnchor: [17, 17] });
 const IconeBairroAtrasado = L.divIcon({ className: 'custom-div-icon', html: '<div class="icone-onibus onibus-atrasado">🚍</div>', iconSize: [34, 34], iconAnchor: [17, 17] });
 
+// Ícone para a localização GPS do usuário
 const IconeUsuario = L.divIcon({ className: 'custom-div-icon', html: '<div class="icone-usuario usuario-gps">🙋‍♂️</div>', iconSize: [34, 34], iconAnchor: [17, 17] });
 
+// Ícone para as Estações Físicas do BRT
+const iconeEstacao = new L.Icon({
+  iconUrl: 'https://cdn-icons-png.flaticon.com/512/2933/2933993.png',
+  iconSize: [35, 35],
+  iconAnchor: [17, 35]
+});
+
+// ============================================================================
+// 3. FUNÇÕES AUXILIARES E MATEMÁTICAS
+// ============================================================================
+
+// Componente invisível para recentralizar a câmera do mapa dinamicamente
 function RecenterAutomatically({ lat, lon, seguirVeiculo }) {
   const map = useMap();
   useEffect(() => {
@@ -21,6 +40,7 @@ function RecenterAutomatically({ lat, lon, seguirVeiculo }) {
   return null;
 }
 
+// Fórmula de Haversine: Calcula distância em METROS considerando a curvatura da Terra (usado para o Alarme)
 function calcularDistanciaMetros(lat1, lon1, lat2, lon2) {
   const R = 6371e3;
   const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -30,7 +50,23 @@ function calcularDistanciaMetros(lat1, lon1, lat2, lon2) {
   return R * c;
 }
 
+// Fórmula de Haversine: Calcula distância em KM (usado para o ETA das Estações)
+const calcularDistancia = (lat1, lon1, lat2, lon2) => {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * (Math.PI / 180);
+  const dLon = (lon2 - lon1) * (Math.PI / 180);
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) *
+            Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+};
+
+// ============================================================================
+// 4. COMPONENTE PRINCIPAL (APP)
+// ============================================================================
 function App() {
+  // --- ESTADOS DO COMPONENTE (State) ---
   const [rotaSelecionada, setRotaSelecionada] = useState("BRT_NORTE_ITAVUVU");
   const [posicaoCentro, setPosicaoCentro] = useState({ lat: -23.4611, lon: -47.4796 });
   const [frotaAtual, setFrotaAtual] = useState([]);
@@ -47,9 +83,13 @@ function App() {
   const [comentarioReporte, setComentarioReporte] = useState("");
   const [visaoGestao, setVisaoGestao] = useState(false);
   const [mapaCalor, setMapaCalor] = useState([]);
+
+  // Lógica de Cores da UI baseada em Lentidão / Modo Gestão
   const rotaComLentidao = frotaAtual.some(onibus => onibus.atraso_previsto_minutos > 0);
   const corPrincipal = visaoGestao ? "#f97316" : (rotaComLentidao ? "#ff0055" : "#00ffcc");
 
+  // --- DADOS ESTÁTICOS ---
+  // 🚦 Simulador de Semáforos IoT
   const cruzamentosInteligentes = [
     { id: "SEM_01", nome: "Av. Itavuvu (UPH Norte)", lat: -23.4760, lon: -47.4720 },
     { id: "SEM_02", nome: "Praça da Bandeira (Gen. Carneiro)", lat: -23.5065, lon: -47.4665 },
@@ -58,32 +98,15 @@ function App() {
   ];
 
   // 🚏 Estações Físicas do BRT
-const estacoesBRT = [
-  { id: "EST_01", nome: "Estação Itavuvu (Norte)", lat: -23.4730, lon: -47.4730 },
-  { id: "EST_02", nome: "Estação Gen. Carneiro (Oeste)", lat: -23.5100, lon: -47.4735 },
-  { id: "EST_03", nome: "Estação São Paulo (Leste)", lat: -23.5040, lon: -47.4380 },
-  { id: "EST_04", nome: "Estação Campolim (Sul)", lat: -23.5380, lon: -47.4670 }
-];
+  const estacoesBRT = [
+    { id: "EST_01", nome: "Estação Itavuvu (Norte)", lat: -23.4730, lon: -47.4730 },
+    { id: "EST_02", nome: "Estação Gen. Carneiro (Oeste)", lat: -23.5100, lon: -47.4735 },
+    { id: "EST_03", nome: "Estação São Paulo (Leste)", lat: -23.5040, lon: -47.4380 },
+    { id: "EST_04", nome: "Estação Campolim (Sul)", lat: -23.5380, lon: -47.4670 }
+  ];
 
-// 📐 Fórmula de Haversine: Calcula distância em KM considerando a curvatura da Terra
-const calcularDistancia = (lat1, lon1, lat2, lon2) => {
-  const R = 6371; // Raio da Terra em km
-  const dLat = (lat2 - lat1) * (Math.PI / 180);
-  const dLon = (lon2 - lon1) * (Math.PI / 180);
-  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-            Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) *
-            Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c; // Distância em KM
-};
-
-// Ícone para as Estações
-const iconeEstacao = new L.Icon({
-  iconUrl: 'https://cdn-icons-png.flaticon.com/512/2933/2933993.png',
-  iconSize: [35, 35],
-  iconAnchor: [17, 35]
-});
-
+  // --- MÉTODOS DE CONTROLE E UI ---
+  // Sintetizador de voz (Acessibilidade TTS)
   const falarTexto = (texto) => {
     if ('speechSynthesis' in window) {
       window.speechSynthesis.cancel();
@@ -109,22 +132,36 @@ const iconeEstacao = new L.Icon({
     else texto += "Fluxo otimizado. ";
     falarTexto(texto);
   };
-  // Função que decide se o semáforo está Verde (Prioridade) ou Vermelho (Normal)
+
+  // Alterna o Ícone do Semáforo com base na Prioridade (Atraso na rota)
   const getIconeSemaforo = (precisaPrioridade) => {
-  return new L.Icon({
-    iconUrl: precisaPrioridade 
-      ? 'https://cdn-icons-png.flaticon.com/512/11865/11865363.png' // Ícone Verde
-      : 'https://cdn-icons-png.flaticon.com/512/4113/4113032.png',  // Ícone Vermelho
-    iconSize: [35, 35],
-    iconAnchor: [17, 35]
-  });
+    return new L.Icon({
+      iconUrl: precisaPrioridade 
+        ? 'https://cdn-icons-png.flaticon.com/512/11865/11865363.png' // Verde
+        : 'https://cdn-icons-png.flaticon.com/512/4113/4113032.png',  // Vermelho
+      iconSize: [35, 35],
+      iconAnchor: [17, 35]
+    });
   };
 
+  // Alterna o Ícone do Ônibus
+  const getIconeOnibus = (onibus) => {
+    if (onibus.sentido === "Centro") {
+      return onibus.atraso_previsto_minutos > 0 ? IconeCentroAtrasado : IconeCentroLivre;
+    } else {
+      return onibus.atraso_previsto_minutos > 0 ? IconeBairroAtrasado : IconeBairroLivre;
+    }
+  };
+
+  // --- EFEITOS (Ciclos de Vida e Chamadas à APIs) ---
+
+  // Relógio do Sistema (Atualiza a cada 1s)
   useEffect(() => {
     const timer = setInterval(() => setHoraAtual(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
 
+  // Clima de Sorocaba via Open-Meteo
   useEffect(() => {
     fetch("https://api.open-meteo.com/v1/forecast?latitude=-23.5015&longitude=-47.4582&current_weather=true")
       .then(res => res.json())
@@ -132,11 +169,13 @@ const iconeEstacao = new L.Icon({
       .catch(console.error);
   }, []);
 
+  // Limpa estado de frota e alarmes ao trocar de rota
   useEffect(() => {
     setFrotaAtual([]);
     setAlertaDisparado(false);
   }, [rotaSelecionada]);
 
+  // Carrega Mapa de Calor (Visão Gestão)
   useEffect(() => {
     if (visaoGestao) {
       fetch("https://api-cco-sorocaba.onrender.com/reportes")
@@ -146,6 +185,7 @@ const iconeEstacao = new L.Icon({
     }
   }, [visaoGestao]);
 
+  // Lógica do Alarme de Proximidade (Geofencing)
   useEffect(() => {
     if (posicaoUsuario && frotaAtual.length > 0 && !visaoGestao) {
       let menorDistancia = Infinity;
@@ -163,6 +203,7 @@ const iconeEstacao = new L.Icon({
     }
   }, [posicaoUsuario, frotaAtual, alarmeAtivo, alertaDisparado, visaoGestao]);
 
+  // Polling: Busca Posição dos Ônibus na API a cada 3 segundos
   useEffect(() => {
     const buscarFrota = async () => {
       if (visaoGestao) return;
@@ -182,6 +223,7 @@ const iconeEstacao = new L.Icon({
     return () => clearInterval(intervalo);
   }, [rotaSelecionada, visaoGestao]);
 
+  // --- AÇÕES DO USUÁRIO ---
   const localizarUsuario = () => {
     setBuscandoGps(true);
     if ("geolocation" in navigator) {
@@ -225,18 +267,13 @@ const iconeEstacao = new L.Icon({
     } catch (erro) { alert("Erro de conexão."); }
   };
 
-  // FUNÇÃO PARA ESCOLHER O ÍCONE CORRETO BASEADO NO SENTIDO E ATRASO
-  const getIconeOnibus = (onibus) => {
-    if (onibus.sentido === "Centro") {
-      return onibus.atraso_previsto_minutos > 0 ? IconeCentroAtrasado : IconeCentroLivre;
-    } else {
-      return onibus.atraso_previsto_minutos > 0 ? IconeBairroAtrasado : IconeBairroLivre;
-    }
-  };
-
+  // ============================================================================
+  // 5. RENDERIZAÇÃO DA INTERFACE (JSX)
+  // ============================================================================
   return (
     <div style={{ height: "100vh", width: "100vw", backgroundColor: "#000" }}>
 
+      {/* --- WIDGET DE CLIMA E HORA --- */}
       <div className="widget-clima">
         <div style={{ textAlign: "center" }}>
           <p className="titulo-widget" style={{ margin: 0, fontSize: "0.7rem", color: "#94a3b8", textTransform: "uppercase" }}>Horário</p>
@@ -249,8 +286,10 @@ const iconeEstacao = new L.Icon({
         </div>
       </div>
 
+      {/* --- PAINEL DE CONTROLE LATERAL --- */}
       <div className="painel-controle" style={{ border: `1px solid rgba(${visaoGestao ? '249,115,22' : (rotaComLentidao ? '255,0,85' : '0,255,204')}, 0.3)`, boxShadow: `0 10px 40px rgba(0,0,0,0.8), inset 0 0 20px rgba(${visaoGestao ? '249,115,22' : (rotaComLentidao ? '255,0,85' : '0,255,204')}, 0.1)` }}>
-
+        
+        {/* Cabeçalho do Painel */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "15px" }}>
           <h2 style={{ margin: 0, fontSize: "1.5rem", fontWeight: "300", display: "flex", alignItems: "center", gap: "10px" }}>
             <span style={{ display: "inline-block", width: "10px", height: "10px", backgroundColor: corPrincipal, borderRadius: "50%", boxShadow: `0 0 15px ${corPrincipal}` }}></span>
@@ -259,6 +298,7 @@ const iconeEstacao = new L.Icon({
           <button onClick={lerStatusEmVoz} style={{ backgroundColor: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.3)", borderRadius: "50%", width: "36px", height: "36px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.2rem" }} title="Ouvir Status (Acessibilidade)">🔊</button>
         </div>
 
+        {/* Alternância de Visão */}
         <button
           onClick={() => setVisaoGestao(!visaoGestao)}
           style={{
@@ -272,6 +312,7 @@ const iconeEstacao = new L.Icon({
           {visaoGestao ? "📊 SAIR DA VISÃO GESTÃO" : "📈 Ativar Visão Gestão (Mapa de Calor)"}
         </button>
 
+        {/* Conteúdo: Visão de Operação Normal */}
         {!visaoGestao ? (
           <>
             <div style={{ marginBottom: "15px" }}>
@@ -315,6 +356,7 @@ const iconeEstacao = new L.Icon({
                   </div>
                 </div>
 
+                {/* Botoes de Controle Espacial */}
                 <div style={{ display: "flex", gap: "10px", marginTop: "5px" }}>
                   <button onClick={() => setSeguirVeiculo(!seguirVeiculo)} style={{ padding: "10px", flex: 1, cursor: "pointer", backgroundColor: seguirVeiculo ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.5)", color: seguirVeiculo ? "#fff" : "#94a3b8", border: "1px solid rgba(255,255,255,0.2)", borderRadius: "8px", fontSize: "0.85rem" }}>
                     {seguirVeiculo ? "🔒 Câmera" : "🔓 Câmera"}
@@ -324,6 +366,7 @@ const iconeEstacao = new L.Icon({
                   </button>
                 </div>
 
+                {/* Botoes de Ações Cidadãs */}
                 <button onClick={() => {
                   if (!posicaoUsuario) { alert("Ative a sua localização primeiro para usar o alarme!"); return; }
                   setAlarmeAtivo(!alarmeAtivo); setAlertaDisparado(false);
@@ -342,6 +385,7 @@ const iconeEstacao = new L.Icon({
             )}
           </>
         ) : (
+          /* Conteúdo: Visão de Gestão (Mapa de Calor) */
           <div style={{ textAlign: "center", color: "#f97316", padding: "20px 0" }}>
             <p style={{ fontSize: "1.2rem", fontWeight: "bold", margin: "0 0 10px 0" }}>Dashboard Municipal</p>
             <p style={{ fontSize: "0.9rem", color: "#cbd5e1" }}>Exibindo {mapaCalor.length} áreas com alta concentração de ocorrências pela cidade.</p>
@@ -352,6 +396,7 @@ const iconeEstacao = new L.Icon({
         )}
       </div>
 
+      {/* --- MODAL DE REPORTE CIDADÃO --- */}
       {mostrarModalReporte && (
         <div style={{ position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh", backgroundColor: "rgba(0,0,0,0.7)", backdropFilter: "blur(5px)", zIndex: 2000, display: "flex", justifyContent: "center", alignItems: "center" }}>
           <div style={{ backgroundColor: "#0f172a", padding: "25px", borderRadius: "16px", border: "1px solid rgba(255,255,255,0.2)", width: "90%", maxWidth: "400px", color: "#fff", fontFamily: "'Segoe UI', sans-serif", boxShadow: "0 20px 50px rgba(0,0,0,0.8)" }}>
@@ -378,9 +423,11 @@ const iconeEstacao = new L.Icon({
         </div>
       )}
 
+      {/* --- MAPA E CAMADAS DE MARCADORES (React-Leaflet) --- */}
       <MapContainer center={[posicaoCentro.lat, posicaoCentro.lon]} zoom={14} zoomControl={false} style={{ height: "100%", width: "100%", zIndex: 1 }}>
         <TileLayer className="map-tiles" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
 
+        {/* 1. MÓDULO DOS ÔNIBUS (Apenas fora da visão gestão) */}
         {!visaoGestao && frotaAtual.map((onibus) => {
             const corLotacao = onibus.lotacao > 80 ? '#ef4444' : (onibus.lotacao > 50 ? '#f59e0b' : '#10b981');
             
@@ -392,107 +439,101 @@ const iconeEstacao = new L.Icon({
                   <b>Sentido:</b> {onibus.sentido} <br/>
                   <b>Velocidade:</b> {onibus.velocidade_atual_kmh} km/h <br/>
                   
-                  {/* === BLOCO 1: Lotação === */}
                   <div style={{ marginTop: "5px", padding: "5px", backgroundColor: "#f1f5f9", borderRadius: "5px" }}>
                       <b>Lotação:</b> <span style={{ color: corLotacao, fontWeight: "bold" }}>{onibus.lotacao || 0}% 👤</span>
                   </div>
 
-                  {/* === BLOCO 2: Comunicação com o Semáforo (Onda Verde) === */}
                   <div style={{ marginTop: "5px", padding: "5px", backgroundColor: onibus.atraso_previsto_minutos > 0 ? '#dcfce3' : '#f1f5f9', borderRadius: "5px" }}>
                       <b>Onda Verde (Semáforo):</b> <span style={{ color: onibus.atraso_previsto_minutos > 0 ? '#10b981' : '#64748b', fontWeight: "bold" }}>
                           {onibus.atraso_previsto_minutos > 0 ? 'Transmitindo 📡' : 'Desativado'}
                       </span>
                   </div>
-                  
                 </Popup>
               </Marker>
             );
         })}
 
-        {/* Renderiza os Semáforos Inteligentes */}
+        {/* 2. MÓDULO ETA: Estações e Previsão de Chegada */}
+        {!visaoGestao && estacoesBRT.map((estacao) => {
+          let onibusMaisProximo = null;
+          let menorDistancia = Infinity;
 
-     {/* === MÓDULO ETA: Estações e Previsão de Chegada === */}
-    {!visaoGestao && estacoesBRT.map((estacao) => {
-      
-      let onibusMaisProximo = null;
-      let menorDistancia = Infinity;
+          // Busca o ônibus mais perto da estação
+          frotaAtual.forEach(onibus => {
+            const distancia = calcularDistancia(estacao.lat, estacao.lon, onibus.latitude, onibus.longitude);
+            if (distancia < menorDistancia) {
+              menorDistancia = distancia;
+              onibusMaisProximo = onibus;
+            }
+          });
 
-      // Encontra qual é o ônibus mais perto dessa estação física
-      frotaAtual.forEach(onibus => {
-        const distancia = calcularDistancia(estacao.lat, estacao.lon, onibus.latitude, onibus.longitude);
-        if (distancia < menorDistancia) {
-          menorDistancia = distancia;
-          onibusMaisProximo = onibus;
-        }
-      });
-
-      // Calcula o Tempo Estimado (Tempo = Distância / Velocidade)
-      let tempoEstimado = "Sem previsão";
-      let corEta = "#64748b";
-      
-      if (onibusMaisProximo) {
-        const velocidade = onibusMaisProximo.velocidade_atual_kmh > 0 ? onibusMaisProximo.velocidade_atual_kmh : 1;
-        
-        // Fórmula: (KM / KM/H) * 60 = Minutos
-        let minutos = Math.round((menorDistancia / velocidade) * 60);
-        
-        // IA: Soma o atraso previsto pela TomTom
-        minutos += onibusMaisProximo.atraso_previsto_minutos;
-        if (minutos === 0) minutos = 1; // Nunca mostra "0 min", mostra "1 min" no mínimo
-        
-        tempoEstimado = `${minutos} min`;
-        corEta = minutos > 10 ? "#ef4444" : (minutos > 5 ? "#f59e0b" : "#10b981");
-      }
-
-      return (
-        <Marker key={estacao.id} position={[estacao.lat, estacao.lon]} icon={iconeEstacao}>
-          <Popup>
-            <b style={{fontSize: "1.1rem"}}>🚏 {estacao.nome}</b><br/>
-            <hr style={{margin: "5px 0", borderColor: "rgba(0,0,0,0.1)"}} />
+          // Lógica de cálculo (Tempo = Distância / Velocidade + Atraso)
+          let tempoEstimado = "Sem previsão";
+          let corEta = "#64748b";
+          
+          if (onibusMaisProximo) {
+            const velocidade = onibusMaisProximo.velocidade_atual_kmh > 0 ? onibusMaisProximo.velocidade_atual_kmh : 1;
+            let minutos = Math.round((menorDistancia / velocidade) * 60);
             
-            <div style={{ padding: "10px", backgroundColor: "#f8fafc", borderRadius: "5px", textAlign: "center" }}>
-                <b>Próximo veículo em:</b><br/>
-                <span style={{ color: corEta, fontWeight: "bold", fontSize: "1.5rem" }}>
-                  {tempoEstimado}
-                </span>
-            </div>
+            minutos += onibusMaisProximo.atraso_previsto_minutos;
+            if (minutos === 0) minutos = 1; 
+            
+            tempoEstimado = `${minutos} min`;
+            corEta = minutos > 10 ? "#ef4444" : (minutos > 5 ? "#f59e0b" : "#10b981");
+          }
 
-            {onibusMaisProximo && (
-              <div style={{ marginTop: "10px", fontSize: "0.85rem", color: "#64748b" }}>
-                Veículo mais próximo: <b>{onibusMaisProximo.id_veiculo}</b> <br/>
-                Distância real: <b>{(menorDistancia * 1000).toFixed(0)} metros</b>
-              </div>
-            )}
-          </Popup>
-        </Marker>
-      );
-    })}
+          return (
+            <Marker key={estacao.id} position={[estacao.lat, estacao.lon]} icon={iconeEstacao}>
+              <Popup>
+                <b style={{fontSize: "1.1rem"}}>🚏 {estacao.nome}</b><br/>
+                <hr style={{margin: "5px 0", borderColor: "rgba(0,0,0,0.1)"}} />
+                
+                <div style={{ padding: "10px", backgroundColor: "#f8fafc", borderRadius: "5px", textAlign: "center" }}>
+                    <b>Próximo veículo em:</b><br/>
+                    <span style={{ color: corEta, fontWeight: "bold", fontSize: "1.5rem" }}>
+                      {tempoEstimado}
+                    </span>
+                </div>
+
+                {onibusMaisProximo && (
+                  <div style={{ marginTop: "10px", fontSize: "0.85rem", color: "#64748b" }}>
+                    Veículo mais próximo: <b>{onibusMaisProximo.id_veiculo}</b> <br/>
+                    Distância real: <b>{(menorDistancia * 1000).toFixed(0)} metros</b>
+                  </div>
+                )}
+              </Popup>
+            </Marker>
+          );
+        })}
        
-    {!visaoGestao && cruzamentosInteligentes.map((semaforo) => {
-      // Lógica IoT: O semáforo verifica se há algum ônibus na rua com mais de 0 minutos de atraso
-      const prioridadeAtivada = frotaAtual.some(onibus => onibus.atraso_previsto_minutos > 0);
-      const corTexto = prioridadeAtivada ? '#10b981' : '#ef4444';
+        {/* 3. MÓDULO SEMÁFOROS: Inteligência de Cruzamentos */}
+        {!visaoGestao && cruzamentosInteligentes.map((semaforo) => {
+          // O semáforo verifica se há algum ônibus com atraso na via ativa
+          const prioridadeAtivada = frotaAtual.some(onibus => onibus.atraso_previsto_minutos > 0);
+          const corTexto = prioridadeAtivada ? '#10b981' : '#ef4444';
 
-      return (
-        <Marker key={semaforo.id} position={[semaforo.lat, semaforo.lon]} icon={getIconeSemaforo(prioridadeAtivada)}>
-          <Popup>
-            <b style={{fontSize: "1.1rem"}}>🚦 Semáforo IoT</b><br/>
-            <hr style={{margin: "5px 0", borderColor: "rgba(0,0,0,0.1)"}} />
-            <b>Local:</b> {semaforo.nome}<br/>
-            <b>Sistema BRT:</b> <span style={{ color: corTexto, fontWeight: "bold" }}>
-              {prioridadeAtivada ? 'Onda Verde (Prioridade Aberta)' : 'Ciclo Normal (Fechado)'}
-            </span>
-          </Popup>
-        </Marker>
-      );
-    })}
+          return (
+            <Marker key={semaforo.id} position={[semaforo.lat, semaforo.lon]} icon={getIconeSemaforo(prioridadeAtivada)}>
+              <Popup>
+                <b style={{fontSize: "1.1rem"}}>🚦 Semáforo IoT</b><br/>
+                <hr style={{margin: "5px 0", borderColor: "rgba(0,0,0,0.1)"}} />
+                <b>Local:</b> {semaforo.nome}<br/>
+                <b>Sistema BRT:</b> <span style={{ color: corTexto, fontWeight: "bold" }}>
+                  {prioridadeAtivada ? 'Onda Verde (Prioridade Aberta)' : 'Ciclo Normal (Fechado)'}
+                </span>
+              </Popup>
+            </Marker>
+          );
+        })}
 
+        {/* 4. MARCADOR DO USUÁRIO */}
         {posicaoUsuario && !visaoGestao && (
           <Marker position={[posicaoUsuario.lat, posicaoUsuario.lon]} icon={IconeUsuario}>
             <Popup>Você está aqui</Popup>
           </Marker>
         )}
 
+        {/* Câmera Autônoma */}
         <RecenterAutomatically lat={posicaoUsuario && !seguirVeiculo ? posicaoUsuario.lat : posicaoCentro.lat} lon={posicaoUsuario && !seguirVeiculo ? posicaoUsuario.lon : posicaoCentro.lon} seguirVeiculo={seguirVeiculo && !visaoGestao} />
       </MapContainer>
     </div>
