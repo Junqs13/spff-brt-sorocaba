@@ -1,13 +1,28 @@
+import os
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from database import db_manager
 
+# 🔒 Carrega as senhas e chaves do arquivo .env
+load_dotenv()
+
 app = FastAPI(title="API Mobilidade Urbana (MySQL)", version="1.0")
 
+# 🔒 SEGURANÇA CORS: Permite apenas o localhost (React) e, no futuro, o link da Vercel
+ORIGENS_PERMITIDAS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    # "https://seu-projeto.vercel.app" <- Descomentaremos no deploy final
+]
+
 app.add_middleware(
-    CORSMiddleware, allow_origins=["*"], allow_credentials=True,
-    allow_methods=["*"], allow_headers=["*"],
+    CORSMiddleware,
+    allow_origins=ORIGENS_PERMITIDAS,
+    allow_credentials=True,
+    allow_methods=["GET", "POST"], # 🔒 Bloqueia DELETE e PUT não autorizados
+    allow_headers=["*"],
 )
 
 class TelemetriaIn(BaseModel):
@@ -15,7 +30,7 @@ class TelemetriaIn(BaseModel):
     id_rota: str
     latitude: float
     longitude: float
-    sentido: str = "Centro"  # NOVA COLUNA
+    sentido: str = "Centro"
     velocidade_atual_kmh: int = 40
     atraso_previsto_minutos: int = 0
     acessibilidade_ativa: int = 1
@@ -47,7 +62,7 @@ def obter_posicoes_da_rota(id_rota: str):
         conn = db_manager.get_mysql_connection()
         cursor = conn.cursor(dictionary=True)
         
-        # FILTRO ANTI-FANTASMA: Apenas veículos que comunicaram nos últimos 5 minutos!
+        # FILTRO ANTI-FANTASMA: Apenas veículos que comunicaram nos últimos 5 minutos
         sql = """
             SELECT t1.id_veiculo, t1.id_rota, t1.latitude, t1.longitude, t1.sentido, t1.velocidade_atual_kmh, t1.atraso_previsto_minutos, t1.acessibilidade_ativa, t1.data_hora
             FROM telemetria t1
@@ -66,7 +81,7 @@ def obter_posicoes_da_rota(id_rota: str):
     except Exception as erro:
         raise HTTPException(status_code=500, detail=str(erro))
 
-# (Rotas de reportes mantidas)
+
 class ReporteIn(BaseModel):
     id_rota: str
     tipo_problema: str
