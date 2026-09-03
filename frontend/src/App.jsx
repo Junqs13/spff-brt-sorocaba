@@ -98,7 +98,7 @@ function App() {
 
   useEffect(() => {
     if (visaoGestao) {
-      fetch("http://127.0.0.1:8000/reportes")
+      fetch("https://api-cco-sorocaba.onrender.com/reportes")
         .then(res => res.json())
         .then(data => setMapaCalor(data.ocorrencias))
         .catch(console.error);
@@ -126,7 +126,7 @@ function App() {
     const buscarFrota = async () => {
       if (visaoGestao) return;
       try {
-        const resposta = await fetch(`http://127.0.0.1:8000/veiculos/ativos/${rotaSelecionada}`);
+        const resposta = await fetch(`https://api-cco-sorocaba.onrender.com/veiculos/ativos/${rotaSelecionada}`);
         const dados = await resposta.json();
         if (dados && dados.frota && dados.frota.length > 0) {
           setFrotaAtual(dados.frota);
@@ -162,7 +162,7 @@ function App() {
     const lonReporte = posicaoUsuario ? posicaoUsuario.lon : posicaoCentro.lon;
 
     try {
-      const resposta = await fetch("http://127.0.0.1:8000/reportes", {
+      const resposta = await fetch("https://api-cco-sorocaba.onrender.com/reportes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 
@@ -178,7 +178,7 @@ function App() {
         setMostrarModalReporte(false);
         setComentarioReporte("");
         if (visaoGestao) { 
-            fetch("http://127.0.0.1:8000/reportes").then(res=>res.json()).then(data=>setMapaCalor(data.ocorrencias));
+            fetch("https://api-cco-sorocaba.onrender.com/reportes").then(res=>res.json()).then(data=>setMapaCalor(data.ocorrencias));
         }
       }
     } catch (erro) { alert("Erro de conexão."); }

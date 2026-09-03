@@ -2,7 +2,7 @@ import time
 import requests
 import random
 
-URL_API = "http://127.0.0.1:8000/telemetria"
+URL_API = "https://api-cco-sorocaba.onrender.com/telemetria"
 TOMTOM_API_KEY = "LYWb0mBk1hukhsQVafDKAIYV7VJoMjv9" # <--- SUA CHAVE AQUI
 
 cache_transito = {}
