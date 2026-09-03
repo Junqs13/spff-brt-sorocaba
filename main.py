@@ -14,7 +14,8 @@ app = FastAPI(title="API Mobilidade Urbana (MySQL)", version="1.0")
 ORIGENS_PERMITIDAS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
-    # "https://seu-projeto.vercel.app" <- Descomentaremos no deploy final
+    "https://spff-brt-sorocaba.vercel.app",
+    "https://spff-brt-sorocaba.vercel.app/"
 ]
 
 app.add_middleware(
