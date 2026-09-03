@@ -42,6 +42,7 @@ class TelemetriaIn(BaseModel):
     velocidade_atual_kmh: int = 40
     atraso_previsto_minutos: int = 0
     acessibilidade_ativa: int = 1
+    lotacao: int = 0
 
 @app.get("/")
 def rota_principal():
@@ -52,8 +53,8 @@ def receber_telemetria(dados: TelemetriaIn):
     try:
         conn = db_manager.get_mysql_connection()
         cursor = conn.cursor()
-        sql = "INSERT INTO telemetria (id_veiculo, id_rota, latitude, longitude, sentido, velocidade_atual_kmh, atraso_previsto_minutos, acessibilidade_ativa) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)"
-        cursor.execute(sql, (dados.id_veiculo, dados.id_rota, dados.latitude, dados.longitude, dados.sentido, dados.velocidade_atual_kmh, dados.atraso_previsto_minutos, dados.acessibilidade_ativa))
+        sql = "INSERT INTO telemetria (id_veiculo, id_rota, latitude, longitude, sentido, velocidade_atual_kmh, atraso_previsto_minutos, acessibilidade_ativa, lotacao) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)"
+        cursor.execute(sql, (dados.id_veiculo, dados.id_rota, dados.latitude, dados.longitude, dados.sentido, dados.velocidade_atual_kmh, dados.atraso_previsto_minutos, dados.acessibilidade_ativa, dados.lotacao))
         conn.commit()
         cursor.close()
         return {"status": "Sucesso"}
@@ -65,7 +66,7 @@ def obter_posicoes_da_rota(id_rota: str):
         conn = db_manager.get_mysql_connection()
         cursor = conn.cursor(dictionary=True)
         sql = """
-            SELECT t1.id_veiculo, t1.id_rota, t1.latitude, t1.longitude, t1.sentido, t1.velocidade_atual_kmh, t1.atraso_previsto_minutos, t1.acessibilidade_ativa, t1.data_hora
+            SELECT t1.id_veiculo, t1.id_rota, t1.latitude, t1.longitude, t1.sentido, t1.velocidade_atual_kmh, t1.atraso_previsto_minutos, t1.acessibilidade_ativa, t1.lotacao, t1.data_hora
             FROM telemetria t1
             INNER JOIN (SELECT id_veiculo, MAX(id) as max_id FROM telemetria WHERE id_rota = %s AND data_hora >= NOW() - INTERVAL 5 MINUTE GROUP BY id_veiculo) t2 
             ON t1.id_veiculo = t2.id_veiculo AND t1.id = t2.max_id;
@@ -186,9 +187,9 @@ def rodar_simulador_background():
                 for id_veiculo, dados_veiculo in veiculos.items():
                     ponto = dados_veiculo["coords"][passo_atual]
                     vel_real, atraso_real = consultar_transito_tomtom(ponto["lat"], ponto["lon"])
-                    
-                    sql = "INSERT INTO telemetria (id_veiculo, id_rota, latitude, longitude, sentido, velocidade_atual_kmh, atraso_previsto_minutos, acessibilidade_ativa) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)"
-                    cursor.execute(sql, (id_veiculo, nome_rota, ponto["lat"], ponto["lon"], dados_veiculo["sentido"], vel_real, atraso_real, 1))
+                    lotacao_simulada = random.randint(10, 100) # Sorteia a lotação de 10% a 100%
+                    sql = "INSERT INTO telemetria (id_veiculo, id_rota, latitude, longitude, sentido, velocidade_atual_kmh, atraso_previsto_minutos, acessibilidade_ativa, lotacao) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)"
+                    cursor.execute(sql, (id_veiculo, nome_rota, ponto["lat"], ponto["lon"], dados_veiculo["sentido"], vel_real, atraso_real, 1, lotacao_simulada))
             conn.commit()
             cursor.close()
             conn.close()

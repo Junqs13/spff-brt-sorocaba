@@ -341,26 +341,23 @@ function App() {
         <TileLayer className="map-tiles" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
         
         {/* RENDERIZA ÔNIBUS COM OS ÍCONES DE DIREÇÃO */}
-        {!visaoGestao && frotaAtual.map((onibus) => (
-            <Marker key={onibus.id_veiculo} position={[onibus.latitude, onibus.longitude]} icon={getIconeOnibus(onibus)}>
-              <Popup>
-                <b>Veículo: {onibus.id_veiculo}</b><br/>
-                Sentido: {onibus.sentido} <br/>
-                Velocidade: {onibus.velocidade_atual_kmh} km/h
-              </Popup>
-            </Marker>
-        ))}
-
-        {visaoGestao && mapaCalor.map((oco, index) => (
-            <CircleMarker 
-              key={index} 
-              center={[oco.latitude, oco.longitude]} 
-              radius={30} 
-              pathOptions={{ color: 'transparent', fillColor: '#ef4444', fillOpacity: 0.4 }} 
-            >
-              <Popup><b>Ocorrência:</b> {oco.tipo_problema}</Popup>
-            </CircleMarker>
-        ))}
+        {!visaoGestao && frotaAtual.map((onibus) => {
+        const corLotacao = onibus.lotacao > 80 ? '#ef4444' : (onibus.lotacao > 50 ? '#f59e0b' : '#10b981');
+        
+        return (
+          <Marker key={onibus.id_veiculo} position={[onibus.latitude, onibus.longitude]} icon={getIconeOnibus(onibus)}>
+            <Popup>
+              <b style={{fontSize: "1.1rem"}}>Veículo: {onibus.id_veiculo}</b><br/>
+              <hr style={{margin: "5px 0", borderColor: "rgba(0,0,0,0.1)"}} />
+              <b>Sentido:</b> {onibus.sentido} <br/>
+              <b>Velocidade:</b> {onibus.velocidade_atual_kmh} km/h <br/>
+              <div style={{ marginTop: "5px", padding: "5px", backgroundColor: "#f1f5f9", borderRadius: "5px" }}>
+                  <b>Lotação:</b> <span style={{ color: corLotacao, fontWeight: "bold" }}>{onibus.lotacao}% 👤</span>
+              </div>
+            </Popup>
+          </Marker>
+        );
+    })}
 
         {posicaoUsuario && !visaoGestao && (
           <Marker position={[posicaoUsuario.lat, posicaoUsuario.lon]} icon={IconeUsuario}>
