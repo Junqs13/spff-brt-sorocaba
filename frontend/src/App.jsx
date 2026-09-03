@@ -56,6 +56,34 @@ function App() {
     { id: "SEM_03", nome: "Av. São Paulo (Santa Casa)", lat: -23.5028, lon: -47.4475 },
     { id: "SEM_04", nome: "Campolim (Esplanada)", lat: -23.5340, lon: -47.4650 }
   ];
+
+  // 🚏 Estações Físicas do BRT
+const estacoesBRT = [
+  { id: "EST_01", nome: "Estação Itavuvu (Norte)", lat: -23.4730, lon: -47.4730 },
+  { id: "EST_02", nome: "Estação Gen. Carneiro (Oeste)", lat: -23.5100, lon: -47.4735 },
+  { id: "EST_03", nome: "Estação São Paulo (Leste)", lat: -23.5040, lon: -47.4380 },
+  { id: "EST_04", nome: "Estação Campolim (Sul)", lat: -23.5380, lon: -47.4670 }
+];
+
+// 📐 Fórmula de Haversine: Calcula distância em KM considerando a curvatura da Terra
+const calcularDistancia = (lat1, lon1, lat2, lon2) => {
+  const R = 6371; // Raio da Terra em km
+  const dLat = (lat2 - lat1) * (Math.PI / 180);
+  const dLon = (lon2 - lon1) * (Math.PI / 180);
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) *
+            Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c; // Distância em KM
+};
+
+// Ícone para as Estações
+const iconeEstacao = new L.Icon({
+  iconUrl: 'https://cdn-icons-png.flaticon.com/512/2933/2933993.png',
+  iconSize: [35, 35],
+  iconAnchor: [17, 35]
+});
+
   const falarTexto = (texto) => {
     if ('speechSynthesis' in window) {
       window.speechSynthesis.cancel();
@@ -382,6 +410,64 @@ function App() {
         })}
 
         {/* Renderiza os Semáforos Inteligentes */}
+
+     {/* === MÓDULO ETA: Estações e Previsão de Chegada === */}
+    {!visaoGestao && estacoesBRT.map((estacao) => {
+      
+      let onibusMaisProximo = null;
+      let menorDistancia = Infinity;
+
+      // Encontra qual é o ônibus mais perto dessa estação física
+      frotaAtual.forEach(onibus => {
+        const distancia = calcularDistancia(estacao.lat, estacao.lon, onibus.latitude, onibus.longitude);
+        if (distancia < menorDistancia) {
+          menorDistancia = distancia;
+          onibusMaisProximo = onibus;
+        }
+      });
+
+      // Calcula o Tempo Estimado (Tempo = Distância / Velocidade)
+      let tempoEstimado = "Sem previsão";
+      let corEta = "#64748b";
+      
+      if (onibusMaisProximo) {
+        const velocidade = onibusMaisProximo.velocidade_atual_kmh > 0 ? onibusMaisProximo.velocidade_atual_kmh : 1;
+        
+        // Fórmula: (KM / KM/H) * 60 = Minutos
+        let minutos = Math.round((menorDistancia / velocidade) * 60);
+        
+        // IA: Soma o atraso previsto pela TomTom
+        minutos += onibusMaisProximo.atraso_previsto_minutos;
+        if (minutos === 0) minutos = 1; // Nunca mostra "0 min", mostra "1 min" no mínimo
+        
+        tempoEstimado = `${minutos} min`;
+        corEta = minutos > 10 ? "#ef4444" : (minutos > 5 ? "#f59e0b" : "#10b981");
+      }
+
+      return (
+        <Marker key={estacao.id} position={[estacao.lat, estacao.lon]} icon={iconeEstacao}>
+          <Popup>
+            <b style={{fontSize: "1.1rem"}}>🚏 {estacao.nome}</b><br/>
+            <hr style={{margin: "5px 0", borderColor: "rgba(0,0,0,0.1)"}} />
+            
+            <div style={{ padding: "10px", backgroundColor: "#f8fafc", borderRadius: "5px", textAlign: "center" }}>
+                <b>Próximo veículo em:</b><br/>
+                <span style={{ color: corEta, fontWeight: "bold", fontSize: "1.5rem" }}>
+                  {tempoEstimado}
+                </span>
+            </div>
+
+            {onibusMaisProximo && (
+              <div style={{ marginTop: "10px", fontSize: "0.85rem", color: "#64748b" }}>
+                Veículo mais próximo: <b>{onibusMaisProximo.id_veiculo}</b> <br/>
+                Distância real: <b>{(menorDistancia * 1000).toFixed(0)} metros</b>
+              </div>
+            )}
+          </Popup>
+        </Marker>
+      );
+    })}
+       
     {!visaoGestao && cruzamentosInteligentes.map((semaforo) => {
       // Lógica IoT: O semáforo verifica se há algum ônibus na rua com mais de 0 minutos de atraso
       const prioridadeAtivada = frotaAtual.some(onibus => onibus.atraso_previsto_minutos > 0);
