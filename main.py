@@ -65,6 +65,8 @@ def obter_posicoes_da_rota(id_rota: str):
     try:
         conn = db_manager.get_mysql_connection()
         cursor = conn.cursor(dictionary=True)
+        
+        # ATENÇÃO AQUI: t1.lotacao foi adicionado no SELECT!
         sql = """
             SELECT t1.id_veiculo, t1.id_rota, t1.latitude, t1.longitude, t1.sentido, t1.velocidade_atual_kmh, t1.atraso_previsto_minutos, t1.acessibilidade_ativa, t1.lotacao, t1.data_hora
             FROM telemetria t1
@@ -75,7 +77,8 @@ def obter_posicoes_da_rota(id_rota: str):
         veiculos = cursor.fetchall() 
         cursor.close()
         return {"frota": veiculos} if veiculos else {"frota": []}
-    except Exception as erro: raise HTTPException(status_code=500, detail=str(erro))
+    except Exception as erro: 
+        raise HTTPException(status_code=500, detail=str(erro))
 
 class ReporteIn(BaseModel):
     id_rota: str

@@ -352,7 +352,7 @@ function App() {
               <b>Sentido:</b> {onibus.sentido} <br/>
               <b>Velocidade:</b> {onibus.velocidade_atual_kmh} km/h <br/>
               <div style={{ marginTop: "5px", padding: "5px", backgroundColor: "#f1f5f9", borderRadius: "5px" }}>
-                  <b>Lotação:</b> <span style={{ color: corLotacao, fontWeight: "bold" }}>{onibus.lotacao}% 👤</span>
+                  <b>Lotação:</b> <span style={{ color: corLotacao, fontWeight: "bold" }}>{onibus.lotacao || 0}% 👤</span>
               </div>
             </Popup>
           </Marker>
