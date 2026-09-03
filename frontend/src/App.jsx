@@ -25,15 +25,15 @@ function calcularDistanciaMetros(lat1, lon1, lat2, lon2) {
   const R = 6371e3;
   const dLat = (lat2 - lat1) * Math.PI / 180;
   const dLon = (lon2 - lon1) * Math.PI / 180;
-  const a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon/2) * Math.sin(dLon/2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return R * c;
 }
 
 function App() {
   const [rotaSelecionada, setRotaSelecionada] = useState("BRT_NORTE_ITAVUVU");
-  const [posicaoCentro, setPosicaoCentro] = useState({ lat: -23.4611, lon: -47.4796 }); 
-  const [frotaAtual, setFrotaAtual] = useState([]); 
+  const [posicaoCentro, setPosicaoCentro] = useState({ lat: -23.4611, lon: -47.4796 });
+  const [frotaAtual, setFrotaAtual] = useState([]);
   const [seguirVeiculo, setSeguirVeiculo] = useState(true);
   const [horaAtual, setHoraAtual] = useState(new Date());
   const [clima, setClima] = useState(null);
@@ -42,17 +42,20 @@ function App() {
   const [alarmeAtivo, setAlarmeAtivo] = useState(false);
   const [distanciaMetros, setDistanciaMetros] = useState(null);
   const [alertaDisparado, setAlertaDisparado] = useState(false);
-  
   const [mostrarModalReporte, setMostrarModalReporte] = useState(false);
   const [tipoProblema, setTipoProblema] = useState("Lotação Máxima");
   const [comentarioReporte, setComentarioReporte] = useState("");
-
   const [visaoGestao, setVisaoGestao] = useState(false);
   const [mapaCalor, setMapaCalor] = useState([]);
-
   const rotaComLentidao = frotaAtual.some(onibus => onibus.atraso_previsto_minutos > 0);
   const corPrincipal = visaoGestao ? "#f97316" : (rotaComLentidao ? "#ff0055" : "#00ffcc");
 
+  const cruzamentosInteligentes = [
+    { id: "SEM_01", nome: "Av. Itavuvu (UPH Norte)", lat: -23.4760, lon: -47.4720 },
+    { id: "SEM_02", nome: "Praça da Bandeira (Gen. Carneiro)", lat: -23.5065, lon: -47.4665 },
+    { id: "SEM_03", nome: "Av. São Paulo (Santa Casa)", lat: -23.5028, lon: -47.4475 },
+    { id: "SEM_04", nome: "Campolim (Esplanada)", lat: -23.5340, lon: -47.4650 }
+  ];
   const falarTexto = (texto) => {
     if ('speechSynthesis' in window) {
       window.speechSynthesis.cancel();
@@ -77,6 +80,16 @@ function App() {
     if (rotaComLentidao) texto += "Atenção: A inteligência artificial detectou lentidão na via. ";
     else texto += "Fluxo otimizado. ";
     falarTexto(texto);
+  };
+  // Função que decide se o semáforo está Verde (Prioridade) ou Vermelho (Normal)
+  const getIconeSemaforo = (precisaPrioridade) => {
+  return new L.Icon({
+    iconUrl: precisaPrioridade 
+      ? 'https://cdn-icons-png.flaticon.com/512/11865/11865363.png' // Ícone Verde
+      : 'https://cdn-icons-png.flaticon.com/512/4113/4113032.png',  // Ícone Vermelho
+    iconSize: [35, 35],
+    iconAnchor: [17, 35]
+  });
   };
 
   useEffect(() => {
@@ -132,7 +145,7 @@ function App() {
           setFrotaAtual(dados.frota);
           setPosicaoCentro({ lat: dados.frota[0].latitude, lon: dados.frota[0].longitude });
         } else {
-            setFrotaAtual([]);
+          setFrotaAtual([]);
         }
       } catch (erro) { console.error("Erro API:", erro); }
     };
@@ -165,20 +178,20 @@ function App() {
       const resposta = await fetch("https://api-cco-sorocaba.onrender.com/reportes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          id_rota: rotaSelecionada, 
-          tipo_problema: tipoProblema, 
+        body: JSON.stringify({
+          id_rota: rotaSelecionada,
+          tipo_problema: tipoProblema,
           latitude: latReporte,
           longitude: lonReporte,
-          comentario: comentarioReporte 
+          comentario: comentarioReporte
         })
       });
       if (resposta.ok) {
         alert("✅ Alerta enviado! Ele agora fará parte do Mapa de Calor da cidade.");
         setMostrarModalReporte(false);
         setComentarioReporte("");
-        if (visaoGestao) { 
-            fetch("https://api-cco-sorocaba.onrender.com/reportes").then(res=>res.json()).then(data=>setMapaCalor(data.ocorrencias));
+        if (visaoGestao) {
+          fetch("https://api-cco-sorocaba.onrender.com/reportes").then(res => res.json()).then(data => setMapaCalor(data.ocorrencias));
         }
       }
     } catch (erro) { alert("Erro de conexão."); }
@@ -187,29 +200,29 @@ function App() {
   // FUNÇÃO PARA ESCOLHER O ÍCONE CORRETO BASEADO NO SENTIDO E ATRASO
   const getIconeOnibus = (onibus) => {
     if (onibus.sentido === "Centro") {
-        return onibus.atraso_previsto_minutos > 0 ? IconeCentroAtrasado : IconeCentroLivre;
+      return onibus.atraso_previsto_minutos > 0 ? IconeCentroAtrasado : IconeCentroLivre;
     } else {
-        return onibus.atraso_previsto_minutos > 0 ? IconeBairroAtrasado : IconeBairroLivre;
+      return onibus.atraso_previsto_minutos > 0 ? IconeBairroAtrasado : IconeBairroLivre;
     }
   };
 
   return (
     <div style={{ height: "100vh", width: "100vw", backgroundColor: "#000" }}>
-      
+
       <div className="widget-clima">
         <div style={{ textAlign: "center" }}>
-            <p className="titulo-widget" style={{ margin: 0, fontSize: "0.7rem", color: "#94a3b8", textTransform: "uppercase" }}>Horário</p>
-            <p className="valor-widget" style={{ margin: 0, fontSize: "1.4rem", fontWeight: "bold", fontFamily: "monospace" }}>{horaAtual.toLocaleTimeString('pt-BR')}</p>
+          <p className="titulo-widget" style={{ margin: 0, fontSize: "0.7rem", color: "#94a3b8", textTransform: "uppercase" }}>Horário</p>
+          <p className="valor-widget" style={{ margin: 0, fontSize: "1.4rem", fontWeight: "bold", fontFamily: "monospace" }}>{horaAtual.toLocaleTimeString('pt-BR')}</p>
         </div>
         <div style={{ width: "1px", height: "30px", backgroundColor: "rgba(255,255,255,0.2)" }}></div>
         <div style={{ textAlign: "center" }}>
-            <p className="titulo-widget" style={{ margin: 0, fontSize: "0.7rem", color: "#94a3b8", textTransform: "uppercase" }}>Sorocaba</p>
-            <p className="valor-widget" style={{ margin: 0, fontSize: "1.4rem", fontWeight: "bold", color: "#00ffcc" }}>{clima ? `${clima.temperature}°C` : "--°C"}</p>
+          <p className="titulo-widget" style={{ margin: 0, fontSize: "0.7rem", color: "#94a3b8", textTransform: "uppercase" }}>Sorocaba</p>
+          <p className="valor-widget" style={{ margin: 0, fontSize: "1.4rem", fontWeight: "bold", color: "#00ffcc" }}>{clima ? `${clima.temperature}°C` : "--°C"}</p>
         </div>
       </div>
 
       <div className="painel-controle" style={{ border: `1px solid rgba(${visaoGestao ? '249,115,22' : (rotaComLentidao ? '255,0,85' : '0,255,204')}, 0.3)`, boxShadow: `0 10px 40px rgba(0,0,0,0.8), inset 0 0 20px rgba(${visaoGestao ? '249,115,22' : (rotaComLentidao ? '255,0,85' : '0,255,204')}, 0.1)` }}>
-        
+
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "15px" }}>
           <h2 style={{ margin: 0, fontSize: "1.5rem", fontWeight: "300", display: "flex", alignItems: "center", gap: "10px" }}>
             <span style={{ display: "inline-block", width: "10px", height: "10px", backgroundColor: corPrincipal, borderRadius: "50%", boxShadow: `0 0 15px ${corPrincipal}` }}></span>
@@ -217,8 +230,8 @@ function App() {
           </h2>
           <button onClick={lerStatusEmVoz} style={{ backgroundColor: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.3)", borderRadius: "50%", width: "36px", height: "36px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.2rem" }} title="Ouvir Status (Acessibilidade)">🔊</button>
         </div>
-        
-        <button 
+
+        <button
           onClick={() => setVisaoGestao(!visaoGestao)}
           style={{
             width: "100%", padding: "12px", marginBottom: "15px", cursor: "pointer",
@@ -232,82 +245,82 @@ function App() {
         </button>
 
         {!visaoGestao ? (
-            <>
-                <div style={{ marginBottom: "15px" }}>
-                    <select value={rotaSelecionada} onChange={(e) => setRotaSelecionada(e.target.value)} style={{ width: "100%", padding: "12px", borderRadius: "8px", border: `1px solid ${corPrincipal}`, backgroundColor: "rgba(0,0,0,0.6)", color: corPrincipal, fontSize: "1rem", outline: "none", cursor: "pointer", fontWeight: "bold" }}>
-                        <option value="BRT_NORTE_ITAVUVU">Av. Itavuvu (Norte)</option>
-                        <option value="BRT_NORTE_IPANEMA">Av. Ipanema (Norte)</option>
-                        <option value="BRT_OESTE_GEN_CARNEIRO">Av. Gen. Carneiro (Oeste)</option>
-                        <option value="BRT_OESTE_PANNUNZIO">Av. A. Pannunzio (Oeste)</option>
-                        <option value="BRT_LESTE_SAO_PAULO">Avenida São Paulo (Leste)</option>
-                        <option value="BRT_SUL_WASH_LUIS">Av. Washington Luís (Sul)</option>
-                        <option value="BRT_SUL_COMITRE">Av. A. C. Comitre (Sul)</option>
-                    </select>
-                </div>
-                
-                {frotaAtual.length > 0 ? (
-                <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                    <div style={{ padding: "10px", borderRadius: "8px", backgroundColor: rotaComLentidao ? "rgba(255, 0, 85, 0.15)" : "rgba(0, 255, 204, 0.15)", color: corPrincipal, borderLeft: `4px solid ${corPrincipal}`, textAlign: "center", textTransform: "uppercase", letterSpacing: "1px" }}>
-                    <p style={{ margin: 0, fontSize: "0.65rem", opacity: 0.8 }}>Status Geral (IA)</p>
-                    <p style={{ margin: "2px 0 0 0", fontSize: "1.1rem", fontWeight: "900" }}>{rotaComLentidao ? `ALERTA DE LENTIDÃO` : "FLUXO OTIMIZADO"}</p>
-                    </div>
-                    
-                    <div style={{ backgroundColor: "rgba(0,0,0,0.4)", padding: "12px", borderRadius: "10px", border: "1px solid rgba(255,255,255,0.05)" }}>
-                    <p style={{ margin: "5px 0", fontSize: "0.85rem", color: "#cbd5e1" }}>🚌 <b>Veículos operando:</b> {frotaAtual.length}</p>
-                    {posicaoUsuario && distanciaMetros !== null && (
-                        <p style={{ margin: "6px 0 0 0", fontSize: "0.85rem", color: "#60a5fa", display: "flex", justifyContent: "space-between", borderTop: "1px solid rgba(255,255,255,0.1)", paddingTop: "6px" }}>
-                        <span>📍 Distância do veículo:</span> <span style={{ fontWeight: "bold" }}>{distanciaMetros} metros</span>
-                        </p>
-                    )}
-                    </div>
-
-                    {/* LEGENDA DO MAPA */}
-                    <div style={{ padding: "10px", backgroundColor: "rgba(0,0,0,0.3)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "8px", fontSize: "0.75rem", color: "#94a3b8" }}>
-                        <p style={{ margin: "0 0 5px 0", fontWeight: "bold", color: "#cbd5e1", textTransform: "uppercase" }}>Legenda do Mapa</p>
-                        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
-                            <span>🚌 Sentido Centro</span>
-                            <span>🚍 Sentido Bairro</span>
-                        </div>
-                        <div style={{ display: "flex", justifyContent: "space-between" }}>
-                            <span><span style={{color: "#00ffcc"}}>🟢</span> Fluxo Livre</span>
-                            <span><span style={{color: "#ff0055"}}>🔴</span> Atraso/Lentidão</span>
-                        </div>
-                    </div>
-
-                    <div style={{ display: "flex", gap: "10px", marginTop: "5px" }}>
-                    <button onClick={() => setSeguirVeiculo(!seguirVeiculo)} style={{ padding: "10px", flex: 1, cursor: "pointer", backgroundColor: seguirVeiculo ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.5)", color: seguirVeiculo ? "#fff" : "#94a3b8", border: "1px solid rgba(255,255,255,0.2)", borderRadius: "8px", fontSize: "0.85rem" }}>
-                        {seguirVeiculo ? "🔒 Câmera" : "🔓 Câmera"}
-                    </button>
-                    <button onClick={localizarUsuario} style={{ padding: "10px", flex: 1, cursor: "pointer", backgroundColor: "rgba(59, 130, 246, 0.2)", color: "#60a5fa", border: "1px solid rgba(59, 130, 246, 0.5)", borderRadius: "8px", fontSize: "0.85rem", fontWeight: "bold" }}>
-                        {buscandoGps ? "📍 Buscando..." : "📍 Onde estou?"}
-                    </button>
-                    </div>
-
-                    <button onClick={() => {
-                        if (!posicaoUsuario) { alert("Ative a sua localização primeiro para usar o alarme!"); return; }
-                        setAlarmeAtivo(!alarmeAtivo); setAlertaDisparado(false);
-                    }}
-                    style={{ padding: "10px", width: "100%", cursor: "pointer", backgroundColor: alarmeAtivo ? "rgba(239, 68, 68, 0.3)" : "rgba(255, 255, 255, 0.05)", color: alarmeAtivo ? "#f87171" : "#94a3b8", border: `1px solid ${alarmeAtivo ? "#ef4444" : "rgba(255,255,255,0.2)"}`, borderRadius: "8px", fontSize: "0.85rem", fontWeight: "bold" }}
-                    >
-                    {alarmeAtivo ? "🔔 Alarme Ligado (< 1km)" : "🔕 Ligar Alarme de Proximidade"}
-                    </button>
-
-                    <button onClick={() => setMostrarModalReporte(true)} style={{ padding: "10px", width: "100%", cursor: "pointer", backgroundColor: "rgba(245, 158, 11, 0.2)", color: "#fbbf24", border: "1px solid rgba(245, 158, 11, 0.5)", borderRadius: "8px", fontSize: "0.85rem", fontWeight: "bold" }}>
-                    ⚠️ Reportar Ocorrência na Rota
-                    </button>
-                </div>
-                ) : (
-                <p style={{ textAlign: "center", color: "#64748b", fontStyle: "italic", padding: "10px 0", fontSize: "0.9rem" }}>Nenhum veículo nesta via.</p>
-                )}
-            </>
-        ) : (
-            <div style={{ textAlign: "center", color: "#f97316", padding: "20px 0" }}>
-                <p style={{ fontSize: "1.2rem", fontWeight: "bold", margin: "0 0 10px 0" }}>Dashboard Municipal</p>
-                <p style={{ fontSize: "0.9rem", color: "#cbd5e1" }}>Exibindo {mapaCalor.length} áreas com alta concentração de ocorrências pela cidade.</p>
-                <button onClick={() => setMostrarModalReporte(true)} style={{ marginTop: "20px", padding: "10px", width: "100%", cursor: "pointer", backgroundColor: "rgba(245, 158, 11, 0.2)", color: "#fbbf24", border: "1px solid rgba(245, 158, 11, 0.5)", borderRadius: "8px", fontSize: "0.85rem", fontWeight: "bold" }}>
-                    ⚠️ Criar Nova Ocorrência Teste
-                </button>
+          <>
+            <div style={{ marginBottom: "15px" }}>
+              <select value={rotaSelecionada} onChange={(e) => setRotaSelecionada(e.target.value)} style={{ width: "100%", padding: "12px", borderRadius: "8px", border: `1px solid ${corPrincipal}`, backgroundColor: "rgba(0,0,0,0.6)", color: corPrincipal, fontSize: "1rem", outline: "none", cursor: "pointer", fontWeight: "bold" }}>
+                <option value="BRT_NORTE_ITAVUVU">Av. Itavuvu (Norte)</option>
+                <option value="BRT_NORTE_IPANEMA">Av. Ipanema (Norte)</option>
+                <option value="BRT_OESTE_GEN_CARNEIRO">Av. Gen. Carneiro (Oeste)</option>
+                <option value="BRT_OESTE_PANNUNZIO">Av. A. Pannunzio (Oeste)</option>
+                <option value="BRT_LESTE_SAO_PAULO">Avenida São Paulo (Leste)</option>
+                <option value="BRT_SUL_WASH_LUIS">Av. Washington Luís (Sul)</option>
+                <option value="BRT_SUL_COMITRE">Av. A. C. Comitre (Sul)</option>
+              </select>
             </div>
+
+            {frotaAtual.length > 0 ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                <div style={{ padding: "10px", borderRadius: "8px", backgroundColor: rotaComLentidao ? "rgba(255, 0, 85, 0.15)" : "rgba(0, 255, 204, 0.15)", color: corPrincipal, borderLeft: `4px solid ${corPrincipal}`, textAlign: "center", textTransform: "uppercase", letterSpacing: "1px" }}>
+                  <p style={{ margin: 0, fontSize: "0.65rem", opacity: 0.8 }}>Status Geral (IA)</p>
+                  <p style={{ margin: "2px 0 0 0", fontSize: "1.1rem", fontWeight: "900" }}>{rotaComLentidao ? `ALERTA DE LENTIDÃO` : "FLUXO OTIMIZADO"}</p>
+                </div>
+
+                <div style={{ backgroundColor: "rgba(0,0,0,0.4)", padding: "12px", borderRadius: "10px", border: "1px solid rgba(255,255,255,0.05)" }}>
+                  <p style={{ margin: "5px 0", fontSize: "0.85rem", color: "#cbd5e1" }}>🚌 <b>Veículos operando:</b> {frotaAtual.length}</p>
+                  {posicaoUsuario && distanciaMetros !== null && (
+                    <p style={{ margin: "6px 0 0 0", fontSize: "0.85rem", color: "#60a5fa", display: "flex", justifyContent: "space-between", borderTop: "1px solid rgba(255,255,255,0.1)", paddingTop: "6px" }}>
+                      <span>📍 Distância do veículo:</span> <span style={{ fontWeight: "bold" }}>{distanciaMetros} metros</span>
+                    </p>
+                  )}
+                </div>
+
+                {/* LEGENDA DO MAPA */}
+                <div style={{ padding: "10px", backgroundColor: "rgba(0,0,0,0.3)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "8px", fontSize: "0.75rem", color: "#94a3b8" }}>
+                  <p style={{ margin: "0 0 5px 0", fontWeight: "bold", color: "#cbd5e1", textTransform: "uppercase" }}>Legenda do Mapa</p>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
+                    <span>🚌 Sentido Centro</span>
+                    <span>🚍 Sentido Bairro</span>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <span><span style={{ color: "#00ffcc" }}>🟢</span> Fluxo Livre</span>
+                    <span><span style={{ color: "#ff0055" }}>🔴</span> Atraso/Lentidão</span>
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", gap: "10px", marginTop: "5px" }}>
+                  <button onClick={() => setSeguirVeiculo(!seguirVeiculo)} style={{ padding: "10px", flex: 1, cursor: "pointer", backgroundColor: seguirVeiculo ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.5)", color: seguirVeiculo ? "#fff" : "#94a3b8", border: "1px solid rgba(255,255,255,0.2)", borderRadius: "8px", fontSize: "0.85rem" }}>
+                    {seguirVeiculo ? "🔒 Câmera" : "🔓 Câmera"}
+                  </button>
+                  <button onClick={localizarUsuario} style={{ padding: "10px", flex: 1, cursor: "pointer", backgroundColor: "rgba(59, 130, 246, 0.2)", color: "#60a5fa", border: "1px solid rgba(59, 130, 246, 0.5)", borderRadius: "8px", fontSize: "0.85rem", fontWeight: "bold" }}>
+                    {buscandoGps ? "📍 Buscando..." : "📍 Onde estou?"}
+                  </button>
+                </div>
+
+                <button onClick={() => {
+                  if (!posicaoUsuario) { alert("Ative a sua localização primeiro para usar o alarme!"); return; }
+                  setAlarmeAtivo(!alarmeAtivo); setAlertaDisparado(false);
+                }}
+                  style={{ padding: "10px", width: "100%", cursor: "pointer", backgroundColor: alarmeAtivo ? "rgba(239, 68, 68, 0.3)" : "rgba(255, 255, 255, 0.05)", color: alarmeAtivo ? "#f87171" : "#94a3b8", border: `1px solid ${alarmeAtivo ? "#ef4444" : "rgba(255,255,255,0.2)"}`, borderRadius: "8px", fontSize: "0.85rem", fontWeight: "bold" }}
+                >
+                  {alarmeAtivo ? "🔔 Alarme Ligado (< 1km)" : "🔕 Ligar Alarme de Proximidade"}
+                </button>
+
+                <button onClick={() => setMostrarModalReporte(true)} style={{ padding: "10px", width: "100%", cursor: "pointer", backgroundColor: "rgba(245, 158, 11, 0.2)", color: "#fbbf24", border: "1px solid rgba(245, 158, 11, 0.5)", borderRadius: "8px", fontSize: "0.85rem", fontWeight: "bold" }}>
+                  ⚠️ Reportar Ocorrência na Rota
+                </button>
+              </div>
+            ) : (
+              <p style={{ textAlign: "center", color: "#64748b", fontStyle: "italic", padding: "10px 0", fontSize: "0.9rem" }}>Nenhum veículo nesta via.</p>
+            )}
+          </>
+        ) : (
+          <div style={{ textAlign: "center", color: "#f97316", padding: "20px 0" }}>
+            <p style={{ fontSize: "1.2rem", fontWeight: "bold", margin: "0 0 10px 0" }}>Dashboard Municipal</p>
+            <p style={{ fontSize: "0.9rem", color: "#cbd5e1" }}>Exibindo {mapaCalor.length} áreas com alta concentração de ocorrências pela cidade.</p>
+            <button onClick={() => setMostrarModalReporte(true)} style={{ marginTop: "20px", padding: "10px", width: "100%", cursor: "pointer", backgroundColor: "rgba(245, 158, 11, 0.2)", color: "#fbbf24", border: "1px solid rgba(245, 158, 11, 0.5)", borderRadius: "8px", fontSize: "0.85rem", fontWeight: "bold" }}>
+              ⚠️ Criar Nova Ocorrência Teste
+            </button>
+          </div>
         )}
       </div>
 
@@ -339,24 +352,53 @@ function App() {
 
       <MapContainer center={[posicaoCentro.lat, posicaoCentro.lon]} zoom={14} zoomControl={false} style={{ height: "100%", width: "100%", zIndex: 1 }}>
         <TileLayer className="map-tiles" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-        
-        {/* RENDERIZA ÔNIBUS COM OS ÍCONES DE DIREÇÃO */}
+
         {!visaoGestao && frotaAtual.map((onibus) => {
-        const corLotacao = onibus.lotacao > 80 ? '#ef4444' : (onibus.lotacao > 50 ? '#f59e0b' : '#10b981');
-        
-        return (
-          <Marker key={onibus.id_veiculo} position={[onibus.latitude, onibus.longitude]} icon={getIconeOnibus(onibus)}>
-            <Popup>
-              <b style={{fontSize: "1.1rem"}}>Veículo: {onibus.id_veiculo}</b><br/>
-              <hr style={{margin: "5px 0", borderColor: "rgba(0,0,0,0.1)"}} />
-              <b>Sentido:</b> {onibus.sentido} <br/>
-              <b>Velocidade:</b> {onibus.velocidade_atual_kmh} km/h <br/>
-              <div style={{ marginTop: "5px", padding: "5px", backgroundColor: "#f1f5f9", borderRadius: "5px" }}>
-                  <b>Lotação:</b> <span style={{ color: corLotacao, fontWeight: "bold" }}>{onibus.lotacao || 0}% 👤</span>
-              </div>
-            </Popup>
-          </Marker>
-        );
+            const corLotacao = onibus.lotacao > 80 ? '#ef4444' : (onibus.lotacao > 50 ? '#f59e0b' : '#10b981');
+            
+            return (
+              <Marker key={onibus.id_veiculo} position={[onibus.latitude, onibus.longitude]} icon={getIconeOnibus(onibus)}>
+                <Popup>
+                  <b style={{fontSize: "1.1rem"}}>Veículo: {onibus.id_veiculo}</b><br/>
+                  <hr style={{margin: "5px 0", borderColor: "rgba(0,0,0,0.1)"}} />
+                  <b>Sentido:</b> {onibus.sentido} <br/>
+                  <b>Velocidade:</b> {onibus.velocidade_atual_kmh} km/h <br/>
+                  
+                  {/* === BLOCO 1: Lotação === */}
+                  <div style={{ marginTop: "5px", padding: "5px", backgroundColor: "#f1f5f9", borderRadius: "5px" }}>
+                      <b>Lotação:</b> <span style={{ color: corLotacao, fontWeight: "bold" }}>{onibus.lotacao || 0}% 👤</span>
+                  </div>
+
+                  {/* === BLOCO 2: Comunicação com o Semáforo (Onda Verde) === */}
+                  <div style={{ marginTop: "5px", padding: "5px", backgroundColor: onibus.atraso_previsto_minutos > 0 ? '#dcfce3' : '#f1f5f9', borderRadius: "5px" }}>
+                      <b>Onda Verde (Semáforo):</b> <span style={{ color: onibus.atraso_previsto_minutos > 0 ? '#10b981' : '#64748b', fontWeight: "bold" }}>
+                          {onibus.atraso_previsto_minutos > 0 ? 'Transmitindo 📡' : 'Desativado'}
+                      </span>
+                  </div>
+                  
+                </Popup>
+              </Marker>
+            );
+        })}
+
+        {/* Renderiza os Semáforos Inteligentes */}
+    {!visaoGestao && cruzamentosInteligentes.map((semaforo) => {
+      // Lógica IoT: O semáforo verifica se há algum ônibus na rua com mais de 0 minutos de atraso
+      const prioridadeAtivada = frotaAtual.some(onibus => onibus.atraso_previsto_minutos > 0);
+      const corTexto = prioridadeAtivada ? '#10b981' : '#ef4444';
+
+      return (
+        <Marker key={semaforo.id} position={[semaforo.lat, semaforo.lon]} icon={getIconeSemaforo(prioridadeAtivada)}>
+          <Popup>
+            <b style={{fontSize: "1.1rem"}}>🚦 Semáforo IoT</b><br/>
+            <hr style={{margin: "5px 0", borderColor: "rgba(0,0,0,0.1)"}} />
+            <b>Local:</b> {semaforo.nome}<br/>
+            <b>Sistema BRT:</b> <span style={{ color: corTexto, fontWeight: "bold" }}>
+              {prioridadeAtivada ? 'Onda Verde (Prioridade Aberta)' : 'Ciclo Normal (Fechado)'}
+            </span>
+          </Popup>
+        </Marker>
+      );
     })}
 
         {posicaoUsuario && !visaoGestao && (
@@ -364,7 +406,7 @@ function App() {
             <Popup>Você está aqui</Popup>
           </Marker>
         )}
-        
+
         <RecenterAutomatically lat={posicaoUsuario && !seguirVeiculo ? posicaoUsuario.lat : posicaoCentro.lat} lon={posicaoUsuario && !seguirVeiculo ? posicaoUsuario.lon : posicaoCentro.lon} seguirVeiculo={seguirVeiculo && !visaoGestao} />
       </MapContainer>
     </div>
