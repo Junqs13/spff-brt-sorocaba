@@ -3,6 +3,7 @@
 // ============================================================================
 import { useEffect, useState } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, useMap, Polyline, CircleMarker } from 'react-leaflet';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 
@@ -83,6 +84,9 @@ function App() {
   const [comentarioReporte, setComentarioReporte] = useState("");
   const [visaoGestao, setVisaoGestao] = useState(false);
   const [mapaCalor, setMapaCalor] = useState([]);
+  
+  // ✅ CORRIGIDO: Agora o estado do gráfico BI está dentro do componente App!
+  const [dadosBI, setDadosBI] = useState([]);
 
   // Lógica de Cores da UI baseada em Lentidão / Modo Gestão
   const rotaComLentidao = frotaAtual.some(onibus => onibus.atraso_previsto_minutos > 0);
@@ -175,12 +179,19 @@ function App() {
     setAlertaDisparado(false);
   }, [rotaSelecionada]);
 
-  // Carrega Mapa de Calor (Visão Gestão)
+  // Carrega Mapa de Calor e Dados do Gráfico de BI (Visão Gestão)
   useEffect(() => {
     if (visaoGestao) {
+      // Puxa as ocorrências
       fetch("https://api-cco-sorocaba.onrender.com/reportes")
         .then(res => res.json())
         .then(data => setMapaCalor(data.ocorrencias))
+        .catch(console.error);
+        
+      // Puxa as médias matemáticas pro Gráfico
+      fetch("https://api-cco-sorocaba.onrender.com/analytics/desempenho")
+        .then(res => res.json())
+        .then(data => setDadosBI(data.analytics))
         .catch(console.error);
     }
   }, [visaoGestao]);
@@ -385,11 +396,31 @@ function App() {
             )}
           </>
         ) : (
-          /* Conteúdo: Visão de Gestão (Mapa de Calor) */
-          <div style={{ textAlign: "center", color: "#f97316", padding: "20px 0" }}>
-            <p style={{ fontSize: "1.2rem", fontWeight: "bold", margin: "0 0 10px 0" }}>Dashboard Municipal</p>
-            <p style={{ fontSize: "0.9rem", color: "#cbd5e1" }}>Exibindo {mapaCalor.length} áreas com alta concentração de ocorrências pela cidade.</p>
-            <button onClick={() => setMostrarModalReporte(true)} style={{ marginTop: "20px", padding: "10px", width: "100%", cursor: "pointer", backgroundColor: "rgba(245, 158, 11, 0.2)", color: "#fbbf24", border: "1px solid rgba(245, 158, 11, 0.5)", borderRadius: "8px", fontSize: "0.85rem", fontWeight: "bold" }}>
+          /* Conteúdo: Visão de Gestão (Mapa de Calor e Dashboard BI) */
+          <div style={{ textAlign: "center", color: "#f97316", padding: "10px 0" }}>
+            <p style={{ fontSize: "1.2rem", fontWeight: "bold", margin: "0 0 5px 0" }}>📊 Dashboard Municipal (BI)</p>
+            <p style={{ fontSize: "0.85rem", color: "#cbd5e1", marginBottom: "15px" }}>Análise em tempo real de Lotação por Corredor</p>
+            
+            {/* GRÁFICO RECHARTS */}
+            {dadosBI.length > 0 ? (
+              <div style={{ height: "200px", width: "100%", backgroundColor: "rgba(0,0,0,0.4)", borderRadius: "10px", padding: "10px" }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={dadosBI} margin={{ top: 10, right: 10, left: -25, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                    <XAxis dataKey="nome_amigavel" stroke="#94a3b8" fontSize={9} />
+                    <YAxis stroke="#94a3b8" fontSize={9} />
+                    <Tooltip contentStyle={{ backgroundColor: "#0f172a", border: "1px solid #f97316", borderRadius: "8px" }} />
+                    <Bar dataKey="lotacao_media" name="Lotação Média (%)" fill="#f97316" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            ) : (
+              <p style={{ fontSize: "0.8rem", color: "#64748b" }}>Analisando telemetria em nuvem...</p>
+            )}
+
+            <p style={{ fontSize: "0.85rem", color: "#cbd5e1", marginTop: "15px" }}>⚠️ Ocorrências Ativas (Mapa): <b>{mapaCalor.length} áreas</b></p>
+            
+            <button onClick={() => setMostrarModalReporte(true)} style={{ marginTop: "10px", padding: "10px", width: "100%", cursor: "pointer", backgroundColor: "rgba(245, 158, 11, 0.2)", color: "#fbbf24", border: "1px solid rgba(245, 158, 11, 0.5)", borderRadius: "8px", fontSize: "0.85rem", fontWeight: "bold" }}>
               ⚠️ Criar Nova Ocorrência Teste
             </button>
           </div>

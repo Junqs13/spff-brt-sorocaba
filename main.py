@@ -110,7 +110,33 @@ def listar_reportes():
         return {"ocorrencias": ocorrencias}
     except Exception as erro: raise HTTPException(status_code=500, detail=str(erro))
 
-
+@app.get("/analytics/desempenho")
+def obter_desempenho():
+    try:
+        conn = db_manager.get_mysql_connection()
+        cursor = conn.cursor(dictionary=True)
+        # Busca a média de lotação por rota nos últimos 15 minutos
+        sql = """
+            SELECT 
+                id_rota, 
+                ROUND(AVG(velocidade_atual_kmh), 1) as vel_media, 
+                ROUND(AVG(lotacao), 1) as lotacao_media
+            FROM telemetria 
+            WHERE data_hora >= NOW() - INTERVAL 15 MINUTE
+            GROUP BY id_rota;
+        """
+        cursor.execute(sql)
+        dados = cursor.fetchall()
+        cursor.close()
+        
+        # Deixa o nome da rota mais curto e bonito pro gráfico (ex: "BRT_NORTE_ITAVUVU" vira "ITAVUVU")
+        for d in dados:
+            d["nome_amigavel"] = d["id_rota"].split("_")[-1]
+            
+        return {"analytics": dados}
+    except Exception as erro: 
+        raise HTTPException(status_code=500, detail=str(erro))
+    
 # ==========================================
 # 2. MOTOR IOT AUTÔNOMO (Roda em Segundo Plano)
 # ==========================================
