@@ -185,17 +185,25 @@ function App() {
       // Puxa as ocorrências
       fetch("https://api-cco-sorocaba.onrender.com/reportes")
         .then(res => res.json())
-        .then(data => setMapaCalor(data.ocorrencias))
+        .then(data => setMapaCalor(data.ocorrencias || [])) // Garante que nunca será null
         .catch(console.error);
         
       // Puxa as médias matemáticas pro Gráfico
       fetch("https://api-cco-sorocaba.onrender.com/analytics/desempenho")
         .then(res => res.json())
-        .then(data => setDadosBI(data.analytics))
-        .catch(console.error);
+        .then(data => {
+            // Se vier nulo do Python, força a ser uma Array vazia
+            if (data && data.analytics && data.analytics.length > 0) {
+                setDadosBI(data.analytics);
+            } else {
+                setDadosBI([]); // Array vazio para não quebrar a tela
+            }
+        })
+        .catch(() => {
+            setDadosBI([]); // Se der erro 500 no Python, reseta o gráfico
+        });
     }
   }, [visaoGestao]);
-
   // Lógica do Alarme de Proximidade (Geofencing)
   useEffect(() => {
     if (posicaoUsuario && frotaAtual.length > 0 && !visaoGestao) {
