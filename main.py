@@ -51,9 +51,9 @@ def rota_principal():
 @app.post("/telemetria")
 def receber_telemetria(dados: TelemetriaIn):
     try:
-        # 🛡️ ESCUDO: Se um simulador antigo mandar 0, nós forçamos um valor real!
+        # 🛡️ ESCUDO: Força a lotação caso um simulador antigo do PC envie 0
         if dados.lotacao == 0:
-            dados.lotacao = random.randint(10, 100)
+            dados.lotacao = random.randint(15, 95)
 
         conn = db_manager.get_mysql_connection()
         cursor = conn.cursor()
@@ -62,7 +62,8 @@ def receber_telemetria(dados: TelemetriaIn):
         conn.commit()
         cursor.close()
         return {"status": "Sucesso"}
-    except Exception as erro: raise HTTPException(status_code=500, detail=str(erro))
+    except Exception as erro: 
+        raise HTTPException(status_code=500, detail=str(erro))
 
 @app.get("/veiculos/ativos/{id_rota}")
 def obter_posicoes_da_rota(id_rota: str):
@@ -70,7 +71,7 @@ def obter_posicoes_da_rota(id_rota: str):
         conn = db_manager.get_mysql_connection()
         cursor = conn.cursor(dictionary=True)
         
-        # ATENÇÃO AQUI: t1.lotacao foi adicionado no SELECT!
+        # O t1.lotacao garante que o React receba os dados
         sql = """
             SELECT t1.id_veiculo, t1.id_rota, t1.latitude, t1.longitude, t1.sentido, t1.velocidade_atual_kmh, t1.atraso_previsto_minutos, t1.acessibilidade_ativa, t1.lotacao, t1.data_hora
             FROM telemetria t1
@@ -101,7 +102,8 @@ def criar_reporte(dados: ReporteIn):
         conn.commit()
         cursor.close()
         return {"status": "Sucesso"}
-    except Exception as erro: raise HTTPException(status_code=500, detail=str(erro))
+    except Exception as erro: 
+        raise HTTPException(status_code=500, detail=str(erro))
 
 @app.get("/reportes")
 def listar_reportes():
@@ -112,14 +114,15 @@ def listar_reportes():
         ocorrencias = cursor.fetchall()
         cursor.close()
         return {"ocorrencias": ocorrencias}
-    except Exception as erro: raise HTTPException(status_code=500, detail=str(erro))
+    except Exception as erro: 
+        raise HTTPException(status_code=500, detail=str(erro))
 
 @app.get("/analytics/desempenho")
 def obter_desempenho():
     try:
         conn = db_manager.get_mysql_connection()
         cursor = conn.cursor(dictionary=True)
-        # Busca a média de lotação por rota nos últimos 15 minutos
+        # Média de Lotação e Velocidade para o Gráfico de BI
         sql = """
             SELECT 
                 id_rota, 
@@ -133,7 +136,6 @@ def obter_desempenho():
         dados = cursor.fetchall()
         cursor.close()
         
-        # Deixa o nome da rota mais curto e bonito pro gráfico (ex: "BRT_NORTE_ITAVUVU" vira "ITAVUVU")
         for d in dados:
             d["nome_amigavel"] = d["id_rota"].split("_")[-1]
             
@@ -210,7 +212,7 @@ def consultar_transito_tomtom(lat, lon):
     return random.randint(30, 45), 0
 
 def rodar_simulador_background():
-    time.sleep(5) # Espera a API ligar
+    time.sleep(5) 
     passo_atual = 0
     while True:
         try:
@@ -220,20 +222,22 @@ def rodar_simulador_background():
                 for id_veiculo, dados_veiculo in veiculos.items():
                     ponto = dados_veiculo["coords"][passo_atual]
                     vel_real, atraso_real = consultar_transito_tomtom(ponto["lat"], ponto["lon"])
-                    lotacao_simulada = random.randint(10, 100) # Sorteia a lotação de 10% a 100%
+                    
+                    # 🛡️ Sorteio robusto de lotação no motor da nuvem
+                    lotacao_simulada = random.randint(15, 95) 
+                    
                     sql = "INSERT INTO telemetria (id_veiculo, id_rota, latitude, longitude, sentido, velocidade_atual_kmh, atraso_previsto_minutos, acessibilidade_ativa, lotacao) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)"
                     cursor.execute(sql, (id_veiculo, nome_rota, ponto["lat"], ponto["lon"], dados_veiculo["sentido"], vel_real, atraso_real, 1, lotacao_simulada))
             conn.commit()
             cursor.close()
             conn.close()
             
-            passo_atual = (passo_atual + 1) % 3 # Fica rodando nas coordenadas infinitamente
-            time.sleep(8) # Aguarda 8s para o próximo passo
+            passo_atual = (passo_atual + 1) % 3 
+            time.sleep(8) 
         except Exception as e:
             print(f"Erro no Simulador Nuvem: {e}")
             time.sleep(10)
 
-# O "gatilho" que liga o motor quando a API sobe no Render
 @app.on_event("startup")
 def ligar_motores():
     print("🚀 Ligando Simulador Autônomo em Background...")
