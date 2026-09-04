@@ -51,6 +51,10 @@ def rota_principal():
 @app.post("/telemetria")
 def receber_telemetria(dados: TelemetriaIn):
     try:
+        # 🛡️ ESCUDO: Se um simulador antigo mandar 0, nós forçamos um valor real!
+        if dados.lotacao == 0:
+            dados.lotacao = random.randint(10, 100)
+
         conn = db_manager.get_mysql_connection()
         cursor = conn.cursor()
         sql = "INSERT INTO telemetria (id_veiculo, id_rota, latitude, longitude, sentido, velocidade_atual_kmh, atraso_previsto_minutos, acessibilidade_ativa, lotacao) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)"

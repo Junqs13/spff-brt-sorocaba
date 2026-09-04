@@ -404,37 +404,66 @@ function App() {
             )}
           </>
         ) : (
-          /* Conteúdo: Visão de Gestão (Mapa de Calor e Dashboard BI) */
-          <div style={{ textAlign: "center", color: "#f97316", padding: "10px 0" }}>
-            <p style={{ fontSize: "1.2rem", fontWeight: "bold", margin: "0 0 5px 0" }}>📊 Dashboard Municipal (BI)</p>
-            <p style={{ fontSize: "0.85rem", color: "#cbd5e1", marginBottom: "15px" }}>Análise em tempo real de Lotação por Corredor</p>
-            
-            {/* GRÁFICO RECHARTS */}
-            {dadosBI.length > 0 ? (
-              <div style={{ height: "200px", width: "100%", backgroundColor: "rgba(0,0,0,0.4)", borderRadius: "10px", padding: "10px" }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={dadosBI} margin={{ top: 10, right: 10, left: -25, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                    <XAxis dataKey="nome_amigavel" stroke="#94a3b8" fontSize={9} />
-                    <YAxis stroke="#94a3b8" fontSize={9} />
-                    <Tooltip contentStyle={{ backgroundColor: "#0f172a", border: "1px solid #f97316", borderRadius: "8px" }} />
-                    <Bar dataKey="lotacao_media" name="Lotação Média (%)" fill="#f97316" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            ) : (
-              <p style={{ fontSize: "0.8rem", color: "#64748b" }}>Analisando telemetria em nuvem...</p>
-            )}
+      /* =========================================================
+         NOVO DASHBOARD BI (Nível Executivo/Prefeitura) 
+         ========================================================= */
+      <div style={{ display: "flex", flexDirection: "column", height: "100%", padding: "10px 0" }}>
+        <div style={{ textAlign: "center", color: "#f97316", marginBottom: "15px" }}>
+            <p style={{ fontSize: "1.2rem", fontWeight: "bold", margin: "0 0 5px 0" }}>📊 Analytics & BI</p>
+            <p style={{ fontSize: "0.85rem", color: "#cbd5e1" }}>Desempenho da Rede BRT (Últimos 15 min)</p>
+        </div>
 
-            <p style={{ fontSize: "0.85rem", color: "#cbd5e1", marginTop: "15px" }}>⚠️ Ocorrências Ativas (Mapa): <b>{mapaCalor.length} áreas</b></p>
-            
-            <button onClick={() => setMostrarModalReporte(true)} style={{ marginTop: "10px", padding: "10px", width: "100%", cursor: "pointer", backgroundColor: "rgba(245, 158, 11, 0.2)", color: "#fbbf24", border: "1px solid rgba(245, 158, 11, 0.5)", borderRadius: "8px", fontSize: "0.85rem", fontWeight: "bold" }}>
-              ⚠️ Criar Nova Ocorrência Teste
-            </button>
+        {/* KPIs Globais Matemáticos */}
+        {dadosBI.length > 0 && (
+            <div style={{ display: "flex", gap: "10px", marginBottom: "15px" }}>
+                <div style={{ flex: 1, backgroundColor: "rgba(249, 115, 22, 0.1)", border: "1px solid rgba(249, 115, 22, 0.3)", borderRadius: "8px", padding: "10px", textAlign: "center" }}>
+                    <p style={{ margin: 0, fontSize: "0.7rem", color: "#f97316", textTransform: "uppercase" }}>Lotação Média</p>
+                    <p style={{ margin: "5px 0 0 0", fontSize: "1.2rem", fontWeight: "bold", color: "#fff" }}>
+                        {Math.round(dadosBI.reduce((a, b) => a + b.lotacao_media, 0) / dadosBI.length)}%
+                    </p>
+                </div>
+                <div style={{ flex: 1, backgroundColor: "rgba(0, 255, 204, 0.1)", border: "1px solid rgba(0, 255, 204, 0.3)", borderRadius: "8px", padding: "10px", textAlign: "center" }}>
+                    <p style={{ margin: 0, fontSize: "0.7rem", color: "#00ffcc", textTransform: "uppercase" }}>Velocidade Média</p>
+                    <p style={{ margin: "5px 0 0 0", fontSize: "1.2rem", fontWeight: "bold", color: "#fff" }}>
+                        {Math.round(dadosBI.reduce((a, b) => a + b.vel_media, 0) / dadosBI.length)} km/h
+                    </p>
+                </div>
+            </div>
+        )}
+
+        {/* GRÁFICO RECHARTS DUPLO (Velocidade vs Lotação) */}
+        {dadosBI.length > 0 ? (
+          <div style={{ height: "250px", width: "100%", backgroundColor: "rgba(0,0,0,0.4)", borderRadius: "10px", padding: "10px 10px 0 0" }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={dadosBI} margin={{ top: 10, right: 0, left: -20, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
+                <XAxis dataKey="nome_amigavel" stroke="#94a3b8" fontSize={10} tickMargin={5} />
+                <YAxis stroke="#94a3b8" fontSize={10} />
+                <Tooltip contentStyle={{ backgroundColor: "#0f172a", border: "1px solid #334155", borderRadius: "8px", color: "#fff" }} itemStyle={{ fontWeight: "bold" }} />
+                <Bar dataKey="lotacao_media" name="Lotação (%)" fill="#f97316" radius={[4, 4, 0, 0]} barSize={12} />
+                <Bar dataKey="vel_media" name="Velocidade (km/h)" fill="#00ffcc" radius={[4, 4, 0, 0]} barSize={12} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        ) : (
+          <div style={{ textAlign: "center", padding: "30px 0", color: "#64748b" }}>
+              <span style={{ fontSize: "2.5rem" }}>📡</span>
+              <p style={{ fontSize: "0.9rem", marginTop: "15px" }}>Aguardando sincronização IoT...</p>
           </div>
         )}
-      </div>
 
+        {/* Rodapé e Botão */}
+        <div style={{ marginTop: "auto", paddingTop: "15px" }}>
+            <p style={{ fontSize: "0.85rem", color: "#cbd5e1", textAlign: "center", marginBottom: "10px" }}>
+                ⚠️ Ocorrências Ativas (Mapa): <b>{mapaCalor.length} áreas</b>
+            </p>
+            <button onClick={() => setMostrarModalReporte(true)} style={{ padding: "12px", width: "100%", cursor: "pointer", backgroundColor: "rgba(245, 158, 11, 0.2)", color: "#fbbf24", border: "1px solid rgba(245, 158, 11, 0.5)", borderRadius: "8px", fontSize: "0.9rem", fontWeight: "bold", textTransform: "uppercase", transition: "0.2s" }}>
+            🚨 Reportar Incidente
+            </button>
+        </div>
+      </div>
+    )}
+  </div>
       {/* --- MODAL DE REPORTE CIDADÃO --- */}
       {mostrarModalReporte && (
         <div style={{ position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh", backgroundColor: "rgba(0,0,0,0.7)", backdropFilter: "blur(5px)", zIndex: 2000, display: "flex", justifyContent: "center", alignItems: "center" }}>
