@@ -12,7 +12,7 @@ const IconeCentroAtrasado = L.divIcon({ className: 'custom-div-icon', html: '<di
 const IconeBairroLivre = L.divIcon({ className: 'custom-div-icon', html: '<div class="icone-onibus onibus-livre">🚍</div>', iconSize: [34, 34], iconAnchor: [17, 17] });
 const IconeBairroAtrasado = L.divIcon({ className: 'custom-div-icon', html: '<div class="icone-onibus onibus-atrasado">🚍</div>', iconSize: [34, 34], iconAnchor: [17, 17] });
 const IconeUsuario = L.divIcon({ className: 'custom-div-icon', html: '<div class="icone-usuario usuario-gps">🙋‍♂️</div>', iconSize: [34, 34], iconAnchor: [17, 17] });
-const iconeEstacao = new L.Icon({ iconUrl: 'https://cdn-icons-png.flaticon.com/512/2933/2933993.png', iconSize: [35, 35], iconAnchor: [17, 35] });
+const iconeEstacao = L.divIcon({ className: 'custom-div-icon', html: '<div style="font-size: 28px; filter: drop-shadow(2px 4px 6px rgba(0,0,0,0.8));">🚏</div>', iconSize: [35, 35], iconAnchor: [17, 35] });
 
 // ============================================================================
 // FUNÇÕES MATEMÁTICAS
@@ -99,10 +99,23 @@ function App() {
     falarTexto(`Corredor ${nomeRotaAmigavel}. ${frotaAtual.length} veículos em operação. ${rotaComLentidao ? "Lentidão detectada." : "Fluxo otimizado."}`);
   };
 
-  const getIconeSemaforo = (precisaPrioridade) => {
-    return new L.Icon({
-      iconUrl: precisaPrioridade ? 'https://cdn-icons-png.flaticon.com/512/11865/11865363.png' : 'https://cdn-icons-png.flaticon.com/512/4113/4113032.png',
-      iconSize: [35, 35], iconAnchor: [17, 35]
+ const getIconeSemaforo = (precisaPrioridade) => {
+    // Cria uma "aura" de luz neon ao redor do semáforo dependendo do atraso
+    const corBrilho = precisaPrioridade ? 'rgba(16, 185, 129, 0.9)' : 'rgba(239, 68, 68, 0.8)';
+    
+    return L.divIcon({
+      className: 'custom-div-icon',
+      html: `<div style="
+        font-size: 24px; 
+        background-color: #1e293b; 
+        border-radius: 50%; 
+        width: 35px; height: 35px;
+        display: flex; align-items: center; justify-content: center;
+        box-shadow: 0 0 15px 5px ${corBrilho}; 
+        border: 1px solid rgba(255,255,255,0.3);
+      ">🚦</div>`,
+      iconSize: [35, 35], 
+      iconAnchor: [17, 35]
     });
   };
 

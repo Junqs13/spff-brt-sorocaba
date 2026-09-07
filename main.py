@@ -46,7 +46,17 @@ class TelemetriaIn(BaseModel):
 
 @app.get("/")
 def rota_principal():
-    return {"mensagem": "API e Motor IoT rodando na Nuvem!"}
+    try:
+        # Força uma consulta inútil apenas para manter a conexão do Aiven viva
+        conn = db_manager.get_mysql_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT 1")
+        cursor.fetchall()
+        cursor.close()
+        return {"status": "Online", "mensagem": "API (Render) e Banco (Aiven) 100% Acordados!"}
+    except Exception as erro:
+        # Se o banco dormiu, a API tenta religar
+        return {"status": "Recuperando", "mensagem": f"Reconectando ao Aiven: {str(erro)}"}
 
 @app.post("/telemetria")
 def receber_telemetria(dados: TelemetriaIn):
