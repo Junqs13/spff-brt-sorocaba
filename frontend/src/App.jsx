@@ -1842,6 +1842,27 @@ function App() {
               </Marker>
             );
           })}
+        {visaoGestao && mapaCalor.map((reporte, index) => (
+          <CircleMarker 
+            key={index} 
+            position={[reporte.latitude, reporte.longitude]} 
+            radius={18} 
+            pathOptions={{ 
+              color: '#f97316', 
+              fillColor: '#f97316', 
+              fillOpacity: 0.7,
+              weight: 2 
+            }}
+          >
+            <Popup>
+              <div style={{ fontFamily: 'sans-serif' }}>
+                <b style={{ fontSize: '1rem', color: '#f97316' }}>⚠️ Alerta da Comunidade</b><hr style={{ margin: '4px 0' }}/>
+                <b>Tipo:</b> {reporte.tipo_problema}<br/>
+                {reporte.comentario && <span><b>Obs:</b> {reporte.comentario}</span>}
+              </div>
+            </Popup>
+          </CircleMarker>
+        ))}
 
         {/* 2. MÓDULO ETA: Estações e Previsão de Chegada */}
         {!visaoGestao &&
