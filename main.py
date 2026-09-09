@@ -132,14 +132,14 @@ def obter_desempenho():
     try:
         conn = db_manager.get_mysql_connection()
         cursor = conn.cursor(dictionary=True)
-        # Média de Lotação e Velocidade para o Gráfico de BI
+        # Ampliamos a janela de tempo para ignorar conflitos de fuso horário entre Render e Aiven
         sql = """
             SELECT 
                 id_rota, 
                 ROUND(AVG(velocidade_atual_kmh), 1) as vel_media, 
                 ROUND(AVG(lotacao), 1) as lotacao_media
             FROM telemetria 
-            WHERE data_hora >= NOW() - INTERVAL 15 MINUTE
+            WHERE data_hora >= NOW() - INTERVAL 24 HOUR
             GROUP BY id_rota;
         """
         cursor.execute(sql)
