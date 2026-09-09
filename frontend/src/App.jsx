@@ -3,7 +3,7 @@
 // 1. IMPORTAÇÕES
 // ============================================================================
 import { useEffect, useState } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, useMap, CircleMarker } from 'react-leaflet';
 import {
   BarChart,
   Bar,
