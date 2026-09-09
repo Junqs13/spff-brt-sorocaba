@@ -1845,7 +1845,7 @@ function App() {
         {visaoGestao && mapaCalor.map((reporte, index) => (
           <CircleMarker 
             key={index} 
-            position={[reporte.latitude, reporte.longitude]} 
+            center={[reporte.latitude, reporte.longitude]} 
             radius={18} 
             pathOptions={{ 
               color: '#f97316', 
