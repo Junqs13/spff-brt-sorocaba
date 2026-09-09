@@ -64,9 +64,14 @@ function App() {
   const [visaoGestao, setVisaoGestao] = useState(false);
   const [mapaCalor, setMapaCalor] = useState([]);
   const [dadosBI, setDadosBI] = useState([]);
-
   const rotaComLentidao = frotaAtual.some(onibus => onibus.atraso_previsto_minutos > 0);
   const corPrincipal = visaoGestao ? "#f97316" : (rotaComLentidao ? "#ff0055" : "#00ffcc");
+  // --- ESTADOS DE SEGURANÇA E LOGIN ---
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [mostrarLogin, setMostrarLogin] = useState(false);
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [erroLogin, setErroLogin] = useState("");
 
   const cruzamentosInteligentes = [
     { id: "SEM_01", nome: "Av. Itavuvu (UPH Norte)", lat: -23.4760, lon: -47.4720 },
@@ -167,6 +172,19 @@ function App() {
     }
   }, [posicaoUsuario, frotaAtual, alarmeAtivo, alertaDisparado, visaoGestao]);
 
+  const handleLogin = (e) => {
+    e.preventDefault();
+    // Credencial fixa para a apresentação do Projeto
+    if (username === "admin" && password === "spff2026") {
+      setIsLoggedIn(true);
+      setMostrarLogin(false);
+      setVisaoGestao(true);
+      setErroLogin("");
+    } else {
+      setErroLogin("Acesso Negado: Credenciais inválidas.");
+    }
+  };
+
   // Polling de Frota
   useEffect(() => {
     const buscarFrota = async () => {
@@ -235,8 +253,25 @@ function App() {
           <button onClick={lerStatusEmVoz} style={{ backgroundColor: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.3)", borderRadius: "50%", width: "36px", height: "36px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.2rem" }} title="Ouvir Status">🔊</button>
         </div>
 
-        <button onClick={() => setVisaoGestao(!visaoGestao)} style={{ width: "100%", padding: "12px", marginBottom: "15px", cursor: "pointer", backgroundColor: visaoGestao ? "rgba(249, 115, 22, 0.3)" : "rgba(255,255,255,0.05)", color: visaoGestao ? "#f97316" : "#cbd5e1", border: `1px solid ${visaoGestao ? "#f97316" : "rgba(255,255,255,0.2)"}`, borderRadius: "8px", fontSize: "0.9rem", fontWeight: "bold" }}>
-          {visaoGestao ? "📊 SAIR DA VISÃO GESTÃO" : "📈 Ativar Visão Gestão"}
+        {/* Alternância de Visão (Com Trava de Segurança) */}
+        <button
+          onClick={() => {
+            if (visaoGestao) {
+              setVisaoGestao(false); // Sair da visão
+            } else {
+              if (isLoggedIn) setVisaoGestao(true); // Se já logou, entra direto
+              else setMostrarLogin(true); // Se não, pede a senha
+            }
+          }}
+          style={{
+            width: "100%", padding: "12px", marginBottom: "15px", cursor: "pointer",
+            backgroundColor: visaoGestao ? "rgba(249, 115, 22, 0.3)" : "rgba(255,255,255,0.05)",
+            color: visaoGestao ? "#f97316" : "#cbd5e1",
+            border: `1px solid ${visaoGestao ? "#f97316" : "rgba(255,255,255,0.2)"}`,
+            borderRadius: "8px", fontSize: "0.9rem", fontWeight: "bold", transition: "all 0.3s"
+          }}
+        >
+          {visaoGestao ? "📊 SAIR DA VISÃO GESTÃO" : "📈 Ativar Visão Gestão (Restrito)"}
         </button>
 
         {!visaoGestao ? (
@@ -337,7 +372,41 @@ function App() {
           </div>
         )}
       </div>
+{/* --- MODAL DE ACESSO RESTRITO (LOGIN) --- */}
+      {mostrarLogin && (
+        <div style={{ position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh", backgroundColor: "rgba(0,0,0,0.85)", backdropFilter: "blur(10px)", zIndex: 3000, display: "flex", justifyContent: "center", alignItems: "center" }}>
+          <div style={{ backgroundColor: "#0f172a", padding: "35px", borderRadius: "16px", border: "1px solid rgba(249, 115, 22, 0.4)", width: "90%", maxWidth: "380px", color: "#fff", boxShadow: "0 20px 60px rgba(249, 115, 22, 0.15)" }}>
+            <div style={{ textAlign: "center", marginBottom: "25px" }}>
+                <span style={{ fontSize: "2.5rem" }}>🔒</span>
+                <h2 style={{ margin: "10px 0 5px 0", color: "#f97316", letterSpacing: "1px" }}>ACESSO RESTRITO</h2>
+                <p style={{ margin: 0, fontSize: "0.85rem", color: "#94a3b8" }}>Painel Executivo de Mobilidade</p>
+            </div>
+            
+            <form onSubmit={handleLogin} style={{ display: "flex", flexDirection: "column", gap: "15px" }}>
+              <div>
+                <label style={{ fontSize: "0.8rem", color: "#cbd5e1", textTransform: "uppercase", fontWeight: "bold" }}>Matrícula Governamental</label>
+                <input type="text" value={username} onChange={e => setUsername(e.target.value)} placeholder="Ex: admin" style={{ width: "100%", padding: "12px", marginTop: "5px", borderRadius: "8px", backgroundColor: "rgba(0,0,0,0.6)", color: "#fff", border: "1px solid rgba(255,255,255,0.2)", outline: "none", fontSize: "1rem" }} autoFocus required />
+              </div>
+              <div>
+                <label style={{ fontSize: "0.8rem", color: "#cbd5e1", textTransform: "uppercase", fontWeight: "bold" }}>Chave de Autenticação</label>
+                <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" style={{ width: "100%", padding: "12px", marginTop: "5px", borderRadius: "8px", backgroundColor: "rgba(0,0,0,0.6)", color: "#fff", border: "1px solid rgba(255,255,255,0.2)", outline: "none", fontSize: "1rem", letterSpacing: "2px" }} required />
+              </div>
+              
+              {erroLogin && (
+                  <div style={{ backgroundColor: "rgba(239, 68, 68, 0.2)", padding: "10px", borderRadius: "8px", border: "1px solid rgba(239, 68, 68, 0.5)", textAlign: "center" }}>
+                      <p style={{ color: "#fca5a5", fontSize: "0.8rem", margin: 0, fontWeight: "bold" }}>{erroLogin}</p>
+                  </div>
+              )}
 
+              <div style={{ display: "flex", gap: "10px", marginTop: "15px" }}>
+                <button type="button" onClick={() => setMostrarLogin(false)} style={{ flex: 1, padding: "12px", backgroundColor: "transparent", color: "#94a3b8", border: "1px solid rgba(255,255,255,0.2)", borderRadius: "8px", cursor: "pointer", fontWeight: "bold", transition: "0.3s" }}>Cancelar</button>
+                <button type="submit" style={{ flex: 2, padding: "12px", backgroundColor: "#f97316", color: "#fff", fontWeight: "bold", border: "none", borderRadius: "8px", cursor: "pointer", boxShadow: "0 4px 15px rgba(249, 115, 22, 0.4)", transition: "0.3s" }}>Autorizar Acesso</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      
       {mostrarModalReporte && (
         <div style={{ position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh", backgroundColor: "rgba(0,0,0,0.7)", backdropFilter: "blur(5px)", zIndex: 2000, display: "flex", justifyContent: "center", alignItems: "center" }}>
           <div style={{ backgroundColor: "#0f172a", padding: "25px", borderRadius: "16px", border: "1px solid rgba(255,255,255,0.2)", width: "90%", maxWidth: "400px", color: "#fff" }}>
