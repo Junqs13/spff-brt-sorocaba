@@ -303,8 +303,34 @@ def rodar_simulador_background():
             print(f"Erro no Simulador Nuvem: {e}")
             time.sleep(10)
 
+def rotina_limpeza_banco():
+    """
+    Acorda a cada 6 horas e deleta registros de telemetria mais antigos que 2 dias.
+    Isso impede que o banco de dados Aiven atinja o limite de disco (Read-Only Mode).
+    """
+    time.sleep(60) # Espera a API ligar completamente antes de fazer a primeira limpeza
+    while True:
+        try:
+            with db_manager.get_connection() as conn:
+                cursor = conn.cursor()
+                # Apaga tudo que for mais velho que 48 horas
+                cursor.execute("DELETE FROM telemetria WHERE data_hora < NOW() - INTERVAL 2 DAY")
+                conn.commit()
+                linhas_apagadas = cursor.rowcount
+                cursor.close()
+                print(f"🧹 Manutenção Automática: {linhas_apagadas} registros antigos deletados para liberar espaço.")
+        except Exception as e:
+            print(f"❌ Erro na rotina de limpeza: {e}")
+        
+        # Dorme por 6 horas (21600 segundos) antes de limpar de novo
+        time.sleep(21600)
+
 @app.on_event("startup")
 def ligar_motores():
     print("🚀 Ligando Simulador Autônomo em Background...")
-    thread = threading.Thread(target=rodar_simulador_background, daemon=True)
-    thread.start()
+    thread_simulador = threading.Thread(target=rodar_simulador_background, daemon=True)
+    thread_simulador.start()
+    
+    print("🧹 Ligando Rotina de Limpeza Automática do Banco...")
+    thread_limpeza = threading.Thread(target=rotina_limpeza_banco, daemon=True)
+    thread_limpeza.start()
