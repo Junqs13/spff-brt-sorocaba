@@ -85,22 +85,37 @@ def garantir_gravacao() -> bool:
 
 
 def ler_amostra():
+    """
+    Lê sem GROUP BY nem ORDER BY, para o servidor não precisar de arquivo
+    temporário (o disco está cheio). O servidor já descarta 14 de cada 15
+    linhas pelo id; o resto da amostragem (um ponto a cada 2 min por
+    ônibus) é feito aqui no computador.
+    """
+    linhas = []
+    ultimo = {}
     with db_manager.get_connection() as conn:
         cursor = conn.cursor()
+        cursor.execute("SELECT MOD(MIN(id), 15) FROM telemetria")
+        resto = cursor.fetchone()[0] or 0
         cursor.execute(
-            f"""
-            SELECT {", ".join("t." + c for c in COLUNAS)}
-            FROM telemetria t
-            JOIN (
-                SELECT MIN(id) AS id FROM telemetria
-                WHERE data_hora >= NOW() - INTERVAL %s DAY
-                GROUP BY id_veiculo, FLOOR(UNIX_TIMESTAMP(data_hora) / %s)
-            ) amostra ON amostra.id = t.id
-            ORDER BY t.id
-            """,
-            (DIAS_RETENCAO, AMOSTRA_SEGUNDOS),
+            f"SELECT {', '.join(COLUNAS)} FROM telemetria "
+            "WHERE data_hora >= NOW() - INTERVAL %s DAY AND MOD(id, 15) = %s",
+            (DIAS_RETENCAO, resto),
         )
-        linhas = cursor.fetchall()
+        lidas = 0
+        while True:
+            bloco = cursor.fetchmany(5000)
+            if not bloco:
+                break
+            lidas += len(bloco)
+            for linha in bloco:
+                veiculo, momento = linha[0], linha[-1]
+                anterior = ultimo.get(veiculo)
+                if anterior is None or abs((momento - anterior).total_seconds()) >= AMOSTRA_SEGUNDOS:
+                    ultimo[veiculo] = momento
+                    linhas.append(linha)
+            print(f"\r  {lidas} linhas lidas, {len(linhas)} na amostra", end="", flush=True)
+        print()
         cursor.close()
     return linhas
 
