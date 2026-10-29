@@ -1,9 +1,17 @@
-
 // ============================================================================
 // 1. IMPORTAÇÕES
 // ============================================================================
-import { useEffect, useState } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, useMap, CircleMarker } from 'react-leaflet';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  MapContainer,
+  TileLayer,
+  Marker,
+  Popup,
+  useMap,
+  useMapEvents,
+  CircleMarker,
+  AttributionControl
+} from 'react-leaflet';
 import {
   BarChart,
   Bar,
@@ -15,37 +23,53 @@ import {
 } from 'recharts';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
+import FolhaInferior from './FolhaInferior';
+import Janela from './Janela';
+import { movimentoReduzido } from './fisica';
+
+const API = 'https://api-cco-sorocaba.onrender.com';
+
+const ROTAS = [
+  { id: 'BRT_NORTE_ITAVUVU', nome: 'Av. Itavuvu (Norte)' },
+  { id: 'BRT_NORTE_IPANEMA', nome: 'Av. Ipanema (Norte)' },
+  { id: 'BRT_OESTE_GEN_CARNEIRO', nome: 'Av. Gen. Carneiro (Oeste)' },
+  { id: 'BRT_OESTE_PANNUNZIO', nome: 'Av. A. Pannunzio (Oeste)' },
+  { id: 'BRT_LESTE_SAO_PAULO', nome: 'Av. São Paulo (Leste)' },
+  { id: 'BRT_SUL_WASH_LUIS', nome: 'Av. Washington Luís (Sul)' },
+  { id: 'BRT_SUL_COMITRE', nome: 'Av. A. C. Comitre (Sul)' }
+];
+
+const CRUZAMENTOS = [
+  { id: 'SEM_01', nome: 'Av. Itavuvu (UPH Norte)', lat: -23.476, lon: -47.472 },
+  { id: 'SEM_02', nome: 'Praça da Bandeira (Gen. Carneiro)', lat: -23.5065, lon: -47.4665 },
+  { id: 'SEM_03', nome: 'Av. São Paulo (Santa Casa)', lat: -23.5028, lon: -47.4475 },
+  { id: 'SEM_04', nome: 'Campolim (Esplanada)', lat: -23.534, lon: -47.465 }
+];
+
+const ESTACOES = [
+  { id: 'EST_01', nome: 'Estação Itavuvu (Norte)', lat: -23.473, lon: -47.473 },
+  { id: 'EST_02', nome: 'Estação Gen. Carneiro (Oeste)', lat: -23.51, lon: -47.4735 },
+  { id: 'EST_03', nome: 'Estação São Paulo (Leste)', lat: -23.504, lon: -47.438 },
+  { id: 'EST_04', nome: 'Estação Campolim (Sul)', lat: -23.538, lon: -47.467 }
+];
 
 // ============================================================================
-// 2. CONFIGURAÇÃO DE ÍCONES (Leaflet)
+// 2. ÍCONES DO MAPA (Leaflet)
 // ============================================================================
-const IconeCentroLivre = L.divIcon({
-  className: 'custom-div-icon',
-  html: '<div class="icone-onibus onibus-livre">🚌</div>',
-  iconSize: [34, 34],
-  iconAnchor: [17, 17]
-});
-
-const IconeCentroAtrasado = L.divIcon({
-  className: 'custom-div-icon',
-  html: '<div class="icone-onibus onibus-atrasado">🚌</div>',
-  iconSize: [34, 34],
-  iconAnchor: [17, 17]
-});
-
-const IconeBairroLivre = L.divIcon({
-  className: 'custom-div-icon',
-  html: '<div class="icone-onibus onibus-livre">🚍</div>',
-  iconSize: [34, 34],
-  iconAnchor: [17, 17]
-});
-
-const IconeBairroAtrasado = L.divIcon({
-  className: 'custom-div-icon',
-  html: '<div class="icone-onibus onibus-atrasado">🚍</div>',
-  iconSize: [34, 34],
-  iconAnchor: [17, 17]
-});
+function iconeOnibus(onibus) {
+  const atrasado = onibus.atraso_previsto_minutos > 0;
+  const emoji = onibus.sentido === 'Centro' ? '🚌' : '🚍';
+  // atraso também aparece em texto, não só na cor
+  const selo = atrasado
+    ? `<span class="selo-atraso">+${onibus.atraso_previsto_minutos}</span>`
+    : '';
+  return L.divIcon({
+    className: 'custom-div-icon',
+    html: `<div class="icone-onibus ${atrasado ? 'onibus-atrasado' : 'onibus-livre'}">${emoji}${selo}</div>`,
+    iconSize: [34, 34],
+    iconAnchor: [17, 17]
+  });
+}
 
 const IconeUsuario = L.divIcon({
   className: 'custom-div-icon',
@@ -54,2034 +78,899 @@ const IconeUsuario = L.divIcon({
   iconAnchor: [17, 17]
 });
 
-// Ícone Unicode nativo para Estações BRT
-const iconeEstacao = L.divIcon({
-  className: 'custom-div-icon',
-  html: '<div style="font-size: 28px; filter: drop-shadow(2px 4px 6px rgba(0,0,0,0.8));">🚏</div>',
-  iconSize: [35, 35],
-  iconAnchor: [17, 35]
-});
+function iconeEstacao(escolhida) {
+  return L.divIcon({
+    className: 'custom-div-icon',
+    html: `<div class="icone-estacao ${escolhida ? 'estacao-escolhida' : ''}">🚏</div>`,
+    iconSize: [36, 36],
+    iconAnchor: [18, 34]
+  });
+}
+
+function iconeSemaforo(prioridade) {
+  return L.divIcon({
+    className: 'custom-div-icon',
+    html: `<div class="icone-semaforo ${prioridade ? 'semaforo-prioridade' : 'semaforo-normal'}">🚦</div>`,
+    iconSize: [35, 35],
+    iconAnchor: [17, 35]
+  });
+}
 
 // ============================================================================
-// 3. FUNÇÕES AUXILIARES E MATEMÁTICAS
+// 3. FUNÇÕES AUXILIARES
 // ============================================================================
-function RecenterAutomatically({ lat, lon, seguirVeiculo }) {
-  const map = useMap();
+function distanciaMetros(lat1, lon1, lat2, lon2) {
+  const R = 6371e3;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
 
-  useEffect(() => {
-    if (seguirVeiculo && lat && lon) {
-      map.flyTo([lat, lon], 14, {
-        animate: true,
-        duration: 1.5
-      });
+function formatarDistancia(m) {
+  if (m < 1000) return `${Math.round(m / 10) * 10} m`;
+  return `${(m / 1000).toFixed(1).replace('.', ',')} km`;
+}
+
+// Próximo ônibus de uma estação, com o tempo estimado de chegada
+function calcularChegada(estacao, frota) {
+  if (!estacao || frota.length === 0) return null;
+  let maisPerto = null;
+  let menor = Infinity;
+  frota.forEach((onibus) => {
+    const d = distanciaMetros(estacao.lat, estacao.lon, onibus.latitude, onibus.longitude);
+    if (d < menor) {
+      menor = d;
+      maisPerto = onibus;
     }
-  }, [lat, lon, map, seguirVeiculo]);
+  });
+  const velocidade = maisPerto.velocidade_atual_kmh > 0 ? maisPerto.velocidade_atual_kmh : 1;
+  let minutos = Math.round((menor / 1000 / velocidade) * 60) + (maisPerto.atraso_previsto_minutos || 0);
+  if (minutos < 1) minutos = 1;
+  return { onibus: maisPerto, distancia: menor, minutos, atraso: maisPerto.atraso_previsto_minutos || 0 };
+}
 
+function estacaoMaisProxima(lat, lon) {
+  let melhor = ESTACOES[0];
+  let menor = Infinity;
+  ESTACOES.forEach((e) => {
+    const d = distanciaMetros(lat, lon, e.lat, e.lon);
+    if (d < menor) {
+      menor = d;
+      melhor = e;
+    }
+  });
+  return melhor;
+}
+
+function useEhCelular() {
+  const consulta = '(max-width: 767px)';
+  const [celular, setCelular] = useState(() => window.matchMedia(consulta).matches);
+  useEffect(() => {
+    const mq = window.matchMedia(consulta);
+    const mudar = () => setCelular(mq.matches);
+    mq.addEventListener('change', mudar);
+    return () => mq.removeEventListener('change', mudar);
+  }, []);
+  return celular;
+}
+
+// Dá acesso ao mapa e avisa quando a pessoa arrasta o mapa com o dedo
+function ControleMapa({ aoPronto, aoArrastar }) {
+  const mapa = useMap();
+  useEffect(() => {
+    aoPronto(mapa);
+  }, [mapa, aoPronto]);
+  useMapEvents({ dragstart: aoArrastar });
   return null;
 }
-
-function calcularDistanciaMetros(lat1, lon1, lat2, lon2) {
-  const R = 6371e3;
-
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLon = (lon2 - lon1) * Math.PI / 180;
-
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(lat1 * Math.PI / 180) *
-      Math.cos(lat2 * Math.PI / 180) *
-      Math.sin(dLon / 2) *
-      Math.sin(dLon / 2);
-
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-
-  return R * c;
-}
-
-const calcularDistancia = (lat1, lon1, lat2, lon2) => {
-  const R = 6371;
-
-  const dLat = (lat2 - lat1) * (Math.PI / 180);
-  const dLon = (lon2 - lon1) * (Math.PI / 180);
-
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(lat1 * (Math.PI / 180)) *
-      Math.cos(lat2 * (Math.PI / 180)) *
-      Math.sin(dLon / 2) *
-      Math.sin(dLon / 2);
-
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-
-  return R * c;
-};
 
 // ============================================================================
 // 4. COMPONENTE PRINCIPAL (APP)
 // ============================================================================
 function App() {
-  // --- ESTADOS DO COMPONENTE ---
-  const [rotaSelecionada, setRotaSelecionada] = useState("BRT_NORTE_ITAVUVU");
+  const celular = useEhCelular();
 
-  const [posicaoCentro, setPosicaoCentro] = useState({
-    lat: -23.4611,
-    lon: -47.4796
-  });
-
+  // --- estado da operação ---
+  const [rotaSelecionada, setRotaSelecionada] = useState('BRT_NORTE_ITAVUVU');
   const [frotaAtual, setFrotaAtual] = useState([]);
-  const [seguirVeiculo, setSeguirVeiculo] = useState(true);
+  const [carregandoFrota, setCarregandoFrota] = useState(true);
+  const [falhaFrota, setFalhaFrota] = useState(false);
   const [horaAtual, setHoraAtual] = useState(new Date());
   const [clima, setClima] = useState(null);
+
+  // --- mapa e câmera ---
+  const [mapa, setMapa] = useState(null);
+  const [seguirOnibus, setSeguirOnibus] = useState(true);
+  const [alturaFolha, setAlturaFolha] = useState(0);
+
+  // --- passageiro ---
   const [posicaoUsuario, setPosicaoUsuario] = useState(null);
   const [buscandoGps, setBuscandoGps] = useState(false);
   const [alarmeAtivo, setAlarmeAtivo] = useState(false);
-  const [distanciaMetros, setDistanciaMetros] = useState(null);
   const [alertaDisparado, setAlertaDisparado] = useState(false);
-  const [mostrarModalReporte, setMostrarModalReporte] = useState(false);
-  const [tipoProblema, setTipoProblema] = useState("Lotação Máxima");
-  const [comentarioReporte, setComentarioReporte] = useState("");
+  const [estacaoEscolhidaId, setEstacaoEscolhidaId] = useState(null);
 
-  // ESTADOS DE SEGURANÇA E LOGIN EXECUTIVO
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [mostrarLogin, setMostrarLogin] = useState(false);
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [erroLogin, setErroLogin] = useState("");
+  // --- reporte ---
+  const [janelaReporte, setJanelaReporte] = useState(null); // null ou DOMRect do botão
+  const [tipoProblema, setTipoProblema] = useState('Lotação máxima');
+  const [comentarioReporte, setComentarioReporte] = useState('');
+  const [enviandoReporte, setEnviandoReporte] = useState(false);
+  const [erroReporte, setErroReporte] = useState('');
+
+  // --- gestão (acesso validado no servidor) ---
+  const [token, setToken] = useState(null);
+  const [janelaLogin, setJanelaLogin] = useState(null);
+  const [usuario, setUsuario] = useState('');
+  const [senha, setSenha] = useState('');
+  const [erroLogin, setErroLogin] = useState('');
+  const [entrando, setEntrando] = useState(false);
   const [visaoGestao, setVisaoGestao] = useState(false);
-
   const [mapaCalor, setMapaCalor] = useState([]);
   const [dadosBI, setDadosBI] = useState([]);
 
-  const rotaComLentidao = frotaAtual.some(
-    onibus => onibus.atraso_previsto_minutos > 0
-  );
+  // --- aviso na tela (substitui o alert do navegador) ---
+  const [aviso, setAviso] = useState(null);
+  const temporizadorAviso = useRef(null);
+  const mostrarAviso = useCallback((texto, tipo = 'info') => {
+    clearTimeout(temporizadorAviso.current);
+    setAviso({ texto, tipo, id: Date.now() });
+    temporizadorAviso.current = setTimeout(() => setAviso(null), 5000);
+  }, []);
 
-  const corPrincipal = visaoGestao
-    ? "#f97316"
-    : (rotaComLentidao ? "#ff0055" : "#00ffcc");
+  const rotaComLentidao = frotaAtual.some((o) => o.atraso_previsto_minutos > 0);
+  const onibusSeguido = frotaAtual[0] || null;
 
-  // --- DADOS ESTÁTICOS ---
-  const cruzamentosInteligentes = [
-    {
-      id: "SEM_01",
-      nome: "Av. Itavuvu (UPH Norte)",
-      lat: -23.4760,
-      lon: -47.4720
-    },
-    {
-      id: "SEM_02",
-      nome: "Praça da Bandeira (Gen. Carneiro)",
-      lat: -23.5065,
-      lon: -47.4665
-    },
-    {
-      id: "SEM_03",
-      nome: "Av. São Paulo (Santa Casa)",
-      lat: -23.5028,
-      lon: -47.4475
-    },
-    {
-      id: "SEM_04",
-      nome: "Campolim (Esplanada)",
-      lat: -23.5340,
-      lon: -47.4650
-    }
-  ];
+  const estacaoAtual = useMemo(() => {
+    if (estacaoEscolhidaId) return ESTACOES.find((e) => e.id === estacaoEscolhidaId);
+    if (posicaoUsuario) return estacaoMaisProxima(posicaoUsuario.lat, posicaoUsuario.lon);
+    if (onibusSeguido) return estacaoMaisProxima(onibusSeguido.latitude, onibusSeguido.longitude);
+    return ESTACOES[0];
+  }, [estacaoEscolhidaId, posicaoUsuario, onibusSeguido]);
 
-  const estacoesBRT = [
-    {
-      id: "EST_01",
-      nome: "Estação Itavuvu (Norte)",
-      lat: -23.4730,
-      lon: -47.4730
-    },
-    {
-      id: "EST_02",
-      nome: "Estação Gen. Carneiro (Oeste)",
-      lat: -23.5100,
-      lon: -47.4735
-    },
-    {
-      id: "EST_03",
-      nome: "Estação São Paulo (Leste)",
-      lat: -23.5040,
-      lon: -47.4380
-    },
-    {
-      id: "EST_04",
-      nome: "Estação Campolim (Sul)",
-      lat: -23.5380,
-      lon: -47.4670
-    }
-  ];
+  const chegada = useMemo(() => calcularChegada(estacaoAtual, frotaAtual), [estacaoAtual, frotaAtual]);
 
-  // --- MÉTODOS DE CONTROLE E UI ---
+  const distanciaUsuario = useMemo(() => {
+    if (!posicaoUsuario || frotaAtual.length === 0) return null;
+    return Math.min(
+      ...frotaAtual.map((o) => distanciaMetros(posicaoUsuario.lat, posicaoUsuario.lon, o.latitude, o.longitude))
+    );
+  }, [posicaoUsuario, frotaAtual]);
+
+  // --- voz ---
   const falarTexto = (texto) => {
     if ('speechSynthesis' in window) {
       window.speechSynthesis.cancel();
-
       const mensagem = new SpeechSynthesisUtterance(texto);
       mensagem.lang = 'pt-BR';
       mensagem.rate = 1.1;
-
       window.speechSynthesis.speak(mensagem);
     }
   };
 
   const lerStatusEmVoz = () => {
     if (visaoGestao) {
-      falarTexto(
-        `Visão de gestão ativada. ${mapaCalor.length} ocorrências registradas pela comunidade.`
-      );
+      falarTexto(`Área de gestão. ${mapaCalor.length} ocorrências registradas pela comunidade.`);
       return;
     }
-
     if (frotaAtual.length === 0) {
-      falarTexto("Nenhum veículo operando nesta rota no momento.");
+      falarTexto('Nenhum ônibus nesta linha agora.');
       return;
     }
-
-    const nomeRotaAmigavel = rotaSelecionada.split('_').pop();
-
-    let texto = `Corredor ${nomeRotaAmigavel}. ${frotaAtual.length} veículos em operação. `;
-
-    if (rotaComLentidao) {
-      texto += "Atenção: A inteligência artificial detectou lentidão na via. ";
-    } else {
-      texto += "Fluxo otimizado. ";
+    let texto = '';
+    if (chegada) {
+      texto += `Próximo ônibus na ${estacaoAtual.nome} em ${chegada.minutos} minutos. `;
+      texto += chegada.atraso > 0 ? `Atrasado ${chegada.atraso} minutos. ` : 'No horário. ';
     }
-
+    texto += `${frotaAtual.length} ônibus na linha. `;
+    texto += rotaComLentidao ? 'Há lentidão na via.' : 'Trânsito normal na via.';
     falarTexto(texto);
-  };
-
-  const getIconeSemaforo = (precisaPrioridade) => {
-    const corBrilho = precisaPrioridade
-      ? 'rgba(16, 185, 129, 0.9)'
-      : 'rgba(239, 68, 68, 0.8)';
-
-    return L.divIcon({
-      className: 'custom-div-icon',
-      html: `<div style="font-size: 24px; background-color: #1e293b; border-radius: 50%; width: 35px; height: 35px; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 15px 5px ${corBrilho}; border: 1px solid rgba(255,255,255,0.3);">🚦</div>`,
-      iconSize: [35, 35],
-      iconAnchor: [17, 35]
-    });
-  };
-
-  const getIconeOnibus = (onibus) => {
-    if (onibus.sentido === "Centro") {
-      return onibus.atraso_previsto_minutos > 0
-        ? IconeCentroAtrasado
-        : IconeCentroLivre;
-    }
-
-    return onibus.atraso_previsto_minutos > 0
-      ? IconeBairroAtrasado
-      : IconeBairroLivre;
   };
 
   // ============================================================================
   // EFEITOS
   // ============================================================================
 
-  // Relógio
+  // Relógio (minuto basta, segundos correndo são ruído)
   useEffect(() => {
-    const timer = setInterval(
-      () => setHoraAtual(new Date()),
-      1000
-    );
-
+    const timer = setInterval(() => setHoraAtual(new Date()), 15000);
     return () => clearInterval(timer);
   }, []);
 
   // Clima
   useEffect(() => {
-    fetch(
-      "https://api.open-meteo.com/v1/forecast?latitude=-23.5015&longitude=-47.4582&current_weather=true"
-    )
-      .then(res => res.json())
-      .then(data => setClima(data.current_weather))
+    fetch('https://api.open-meteo.com/v1/forecast?latitude=-23.5015&longitude=-47.4582&current_weather=true')
+      .then((res) => res.json())
+      .then((data) => setClima(data.current_weather))
       .catch(console.error);
   }, []);
 
   // Troca de rota
   useEffect(() => {
     setFrotaAtual([]);
+    setCarregandoFrota(true);
     setAlertaDisparado(false);
+    setSeguirOnibus(true);
   }, [rotaSelecionada]);
 
-  // Visão Gestão
+  // Dados da gestão
+  const carregarGestao = useCallback(() => {
+    const cabecalhos = token ? { Authorization: `Bearer ${token}` } : {};
+    fetch(`${API}/reportes`, { headers: cabecalhos })
+      .then((res) => res.json())
+      .then((data) => setMapaCalor(data.ocorrencias || []))
+      .catch(console.error);
+    fetch(`${API}/analytics/desempenho`, { headers: cabecalhos })
+      .then((res) => res.json())
+      .then((data) => setDadosBI(data?.analytics?.length > 0 ? data.analytics : []))
+      .catch(() => setDadosBI([]));
+  }, [token]);
+
   useEffect(() => {
-    if (visaoGestao) {
-      fetch(
-        "https://api-cco-sorocaba.onrender.com/reportes"
-      )
-        .then(res => res.json())
-        .then(data => setMapaCalor(data.ocorrencias || []))
-        .catch(console.error);
+    if (visaoGestao) carregarGestao();
+  }, [visaoGestao, carregarGestao]);
 
-      fetch(
-        "https://api-cco-sorocaba.onrender.com/analytics/desempenho"
-      )
-        .then(res => res.json())
-        .then(data => {
-          if (
-            data &&
-            data.analytics &&
-            data.analytics.length > 0
-          ) {
-            setDadosBI(data.analytics);
-          } else {
-            setDadosBI([]);
-          }
-        })
-        .catch(() => setDadosBI([]));
-    }
-  }, [visaoGestao]);
-
-  // Distância do usuário até o ônibus
+  // Alarme de proximidade: voz, vibração e aviso no mesmo instante
   useEffect(() => {
-    if (
-      posicaoUsuario &&
-      frotaAtual.length > 0 &&
-      !visaoGestao
-    ) {
-      let menorDistancia = Infinity;
-
-      frotaAtual.forEach(onibus => {
-        const dist = calcularDistanciaMetros(
-          posicaoUsuario.lat,
-          posicaoUsuario.lon,
-          onibus.latitude,
-          onibus.longitude
-        );
-
-        if (dist < menorDistancia) {
-          menorDistancia = dist;
-        }
-      });
-
-      setDistanciaMetros(Math.round(menorDistancia));
-
-      if (
-        alarmeAtivo &&
-        menorDistancia <= 1000 &&
-        !alertaDisparado
-      ) {
-        setAlertaDisparado(true);
-
-        falarTexto(
-          "Atenção passageiro! O seu veículo está a menos de um quilômetro de distância."
-        );
-
-        setTimeout(() => {
-          alert(
-            "🚨 ATENÇÃO! O seu veículo BRT está a menos de 1 km de distância!"
-          );
-        }, 500);
-      }
+    if (!alarmeAtivo || alertaDisparado || distanciaUsuario === null || visaoGestao) return;
+    if (distanciaUsuario <= 1000) {
+      setAlertaDisparado(true);
+      const texto = `Seu ônibus está a ${formatarDistancia(distanciaUsuario)} de você.`;
+      mostrarAviso(texto, 'alerta');
+      if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+      falarTexto(`Atenção. ${texto}`);
     }
-  }, [
-    posicaoUsuario,
-    frotaAtual,
-    alarmeAtivo,
-    alertaDisparado,
-    visaoGestao
-  ]);
+  }, [alarmeAtivo, alertaDisparado, distanciaUsuario, visaoGestao, mostrarAviso]);
 
   // Busca da frota
   useEffect(() => {
+    if (visaoGestao) return undefined;
+    let ativo = true;
     const buscarFrota = async () => {
-      if (visaoGestao) return;
-
       try {
-        const resposta = await fetch(
-          `https://api-cco-sorocaba.onrender.com/veiculos/ativos/${rotaSelecionada}`
-        );
-
+        const resposta = await fetch(`${API}/veiculos/ativos/${rotaSelecionada}`);
         const dados = await resposta.json();
-
-        if (
-          dados &&
-          dados.frota &&
-          dados.frota.length > 0
-        ) {
-          setFrotaAtual(dados.frota);
-
-          setPosicaoCentro({
-            lat: dados.frota[0].latitude,
-            lon: dados.frota[0].longitude
-          });
-        } else {
-          setFrotaAtual([]);
-        }
+        if (!ativo) return;
+        setFrotaAtual(dados?.frota?.length > 0 ? dados.frota : []);
+        setFalhaFrota(false);
       } catch (erro) {
-        console.error("Erro API:", erro);
+        console.error('Erro API:', erro);
+        if (ativo) setFalhaFrota(true);
+      } finally {
+        if (ativo) setCarregandoFrota(false);
       }
     };
-
     buscarFrota();
-
-    const intervalo = setInterval(
-      buscarFrota,
-      3000
-    );
-
-    return () => clearInterval(intervalo);
+    const intervalo = setInterval(buscarFrota, 3000);
+    return () => {
+      ativo = false;
+      clearInterval(intervalo);
+    };
   }, [rotaSelecionada, visaoGestao]);
+
+  // ============================================================================
+  // CÂMERA DO MAPA
+  // ============================================================================
+
+  // Centraliza um ponto na parte do mapa que não está coberta pelo painel
+  const centralizar = useCallback(
+    (lat, lon, { voar = false, zoom } = {}) => {
+      if (!mapa) return;
+      const z = zoom ?? mapa.getZoom();
+      const deslocX = celular ? 0 : -190; // painel lateral à esquerda
+      const deslocY = celular ? alturaFolha / 2 : 0; // folha embaixo
+      const ponto = mapa.project([lat, lon], z).add([deslocX, deslocY]);
+      const centro = mapa.unproject(ponto, z);
+      const reduzido = movimentoReduzido();
+      if (voar && !reduzido) mapa.flyTo(centro, z, { duration: 0.8 });
+      else mapa.panTo(centro, { animate: !reduzido, duration: 0.6 });
+    },
+    [mapa, celular, alturaFolha]
+  );
+
+  // Segue o ônibus só enquanto a pessoa não mexe no mapa
+  const latSeguido = onibusSeguido?.latitude;
+  const lonSeguido = onibusSeguido?.longitude;
+  useEffect(() => {
+    if (!seguirOnibus || visaoGestao || latSeguido === undefined) return;
+    centralizar(latSeguido, lonSeguido);
+  }, [seguirOnibus, visaoGestao, latSeguido, lonSeguido, centralizar]);
+
+  const aoArrastarMapa = useCallback(() => setSeguirOnibus(false), []);
+
+  const voltarAoOnibus = () => {
+    setSeguirOnibus(true);
+    if (onibusSeguido && mapa) {
+      centralizar(onibusSeguido.latitude, onibusSeguido.longitude, {
+        voar: true,
+        zoom: Math.max(mapa.getZoom(), 14)
+      });
+    }
+  };
 
   // ============================================================================
   // AÇÕES DO USUÁRIO
   // ============================================================================
 
-  const handleLogin = (e) => {
-    e.preventDefault();
-
-    if (
-      username === "admin" &&
-      password === "spff2026"
-    ) {
-      setIsLoggedIn(true);
-      setMostrarLogin(false);
-      setVisaoGestao(true);
-      setErroLogin("");
-    } else {
-      setErroLogin(
-        "Acesso Negado: Credenciais inválidas."
+  const localizarUsuario = () =>
+    new Promise((resolver) => {
+      if (!('geolocation' in navigator)) {
+        mostrarAviso('Este navegador não informa a localização.', 'erro');
+        resolver(null);
+        return;
+      }
+      setBuscandoGps(true);
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const pos = { lat: position.coords.latitude, lon: position.coords.longitude };
+          setPosicaoUsuario(pos);
+          setBuscandoGps(false);
+          resolver(pos);
+        },
+        () => {
+          setBuscandoGps(false);
+          mostrarAviso('Não foi possível ver sua localização. Libere o GPS para este site nas configurações do navegador.', 'erro');
+          resolver(null);
+        },
+        { enableHighAccuracy: true, timeout: 15000 }
       );
+    });
+
+  const ondeEstou = async () => {
+    const pos = await localizarUsuario();
+    if (pos) {
+      setSeguirOnibus(false);
+      centralizar(pos.lat, pos.lon, { voar: true, zoom: 15 });
     }
   };
 
-  const localizarUsuario = () => {
-    setBuscandoGps(true);
-
-    if ("geolocation" in navigator) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          setPosicaoUsuario({
-            lat: position.coords.latitude,
-            lon: position.coords.longitude
-          });
-
-          setBuscandoGps(false);
-          setSeguirVeiculo(false);
-        },
-        () => {
-          alert("Permita o GPS.");
-          setBuscandoGps(false);
-        },
-        {
-          enableHighAccuracy: true
-        }
-      );
-    } else {
-      alert("Geolocalização não suportada neste navegador.");
-      setBuscandoGps(false);
+  const alternarAlarme = async () => {
+    if (alarmeAtivo) {
+      setAlarmeAtivo(false);
+      return;
     }
+    // sem GPS, o próprio botão pede a localização
+    const pos = posicaoUsuario || (await localizarUsuario());
+    if (!pos) return;
+    setAlertaDisparado(false);
+    setAlarmeAtivo(true);
+    mostrarAviso('Pronto. Você será avisado quando o ônibus estiver a 1 km.', 'sucesso');
+  };
+
+  const abrirLogin = (e) => {
+    if (token) {
+      setVisaoGestao(true);
+      return;
+    }
+    setErroLogin('');
+    setJanelaLogin(e.currentTarget.getBoundingClientRect());
+  };
+
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setEntrando(true);
+    setErroLogin('');
+    try {
+      const resposta = await fetch(`${API}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ usuario, senha })
+      });
+      if (resposta.ok) {
+        const dados = await resposta.json();
+        setToken(dados.token);
+        setSenha('');
+        setJanelaLogin(null);
+        setVisaoGestao(true);
+      } else if (resposta.status === 401) {
+        setErroLogin('Matrícula ou senha incorretas.');
+      } else {
+        setErroLogin('O servidor não respondeu como esperado. Tente de novo em instantes.');
+      }
+    } catch {
+      setErroLogin('Sem conexão com o servidor. Verifique a internet e tente de novo.');
+    } finally {
+      setEntrando(false);
+    }
+  };
+
+  const abrirReporte = (e) => {
+    setErroReporte('');
+    setJanelaReporte(e.currentTarget.getBoundingClientRect());
+  };
+
+  const localReporte = () => {
+    if (posicaoUsuario) return { ...posicaoUsuario, origem: 'gps' };
+    if (mapa) {
+      const c = mapa.getCenter();
+      return { lat: c.lat, lon: c.lng, origem: 'mapa' };
+    }
+    return null;
   };
 
   const enviarReporte = async (e) => {
     e.preventDefault();
-
-    const latReporte = posicaoUsuario
-      ? posicaoUsuario.lat
-      : posicaoCentro.lat;
-
-    const lonReporte = posicaoUsuario
-      ? posicaoUsuario.lon
-      : posicaoCentro.lon;
-
+    const local = localReporte();
+    if (!local) {
+      setErroReporte('Não foi possível definir o local da ocorrência.');
+      return;
+    }
+    setEnviandoReporte(true);
+    setErroReporte('');
     try {
-      const resposta = await fetch(
-        "https://api-cco-sorocaba.onrender.com/reportes",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            id_rota: rotaSelecionada,
-            tipo_problema: tipoProblema,
-            latitude: latReporte,
-            longitude: lonReporte,
-            comentario: comentarioReporte
-          })
-        }
-      );
-
+      const resposta = await fetch(`${API}/reportes`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id_rota: rotaSelecionada,
+          tipo_problema: tipoProblema,
+          latitude: local.lat,
+          longitude: local.lon,
+          comentario: comentarioReporte
+        })
+      });
       if (resposta.ok) {
-        alert(
-          "✅ Alerta enviado! Ele agora fará parte do Mapa de Calor da cidade."
-        );
-
-        setMostrarModalReporte(false);
-        setComentarioReporte("");
-
-        if (visaoGestao) {
-          fetch(
-            "https://api-cco-sorocaba.onrender.com/reportes"
-          )
-            .then(res => res.json())
-            .then(data =>
-              setMapaCalor(data.ocorrencias || [])
-            )
-            .catch(console.error);
-        }
+        setJanelaReporte(null);
+        setComentarioReporte('');
+        mostrarAviso('Ocorrência enviada. Obrigado por avisar.', 'sucesso');
+        if (visaoGestao) carregarGestao();
       } else {
-        alert("Não foi possível enviar o alerta.");
+        setErroReporte('O servidor não aceitou o envio. Tente de novo.');
       }
     } catch (erro) {
-      console.error("Erro ao enviar reporte:", erro);
-      alert("Erro de conexão.");
+      console.error('Erro ao enviar reporte:', erro);
+      setErroReporte('Sem conexão. Verifique a internet e tente de novo.');
+    } finally {
+      setEnviandoReporte(false);
     }
   };
 
   // ============================================================================
-  // 5. RENDERIZAÇÃO DA INTERFACE (JSX)
+  // 5. CONTEÚDO DO PAINEL
   // ============================================================================
-  return (
-    <div
-      style={{
-        height: "100vh",
-        width: "100vw",
-        backgroundColor: "#000"
-      }}
-    >
 
-      {/* WIDGET DE CLIMA E HORA */}
-      <div className="widget-clima">
-        <div style={{ textAlign: "center" }}>
-          <p
-            className="titulo-widget"
-            style={{
-              margin: 0,
-              fontSize: "0.7rem",
-              color: "#94a3b8",
-              textTransform: "uppercase"
-            }}
-          >
-            Horário
-          </p>
-
-          <p
-            className="valor-widget"
-            style={{
-              margin: 0,
-              fontSize: "1.4rem",
-              fontWeight: "bold",
-              fontFamily: "monospace"
-            }}
-          >
-            {horaAtual.toLocaleTimeString('pt-BR')}
-          </p>
-        </div>
-
-        <div
-          style={{
-            width: "1px",
-            height: "30px",
-            backgroundColor: "rgba(255,255,255,0.2)"
-          }}
-        />
-
-        <div style={{ textAlign: "center" }}>
-          <p
-            className="titulo-widget"
-            style={{
-              margin: 0,
-              fontSize: "0.7rem",
-              color: "#94a3b8",
-              textTransform: "uppercase"
-            }}
-          >
-            Sorocaba
-          </p>
-
-          <p
-            className="valor-widget"
-            style={{
-              margin: 0,
-              fontSize: "1.4rem",
-              fontWeight: "bold",
-              color: "#00ffcc"
-            }}
-          >
-            {clima
-              ? `${clima.temperature}°C`
-              : "--°C"}
-          </p>
-        </div>
+  const cabecalhoPassageiro = (
+    <div className="painel-cabecalho">
+      <div className="linha-rota">
+        <label htmlFor="rota" className="so-leitor">Linha</label>
+        <select
+          id="rota"
+          className="seletor-rota"
+          value={rotaSelecionada}
+          onChange={(e) => setRotaSelecionada(e.target.value)}
+        >
+          {ROTAS.map((r) => (
+            <option key={r.id} value={r.id}>{r.nome}</option>
+          ))}
+        </select>
+        <button type="button" className="botao-icone" onClick={lerStatusEmVoz} aria-label="Ouvir a situação da linha">
+          🔊
+        </button>
       </div>
 
-      {/* PAINEL DE CONTROLE LATERAL */}
-      <div
-        className="painel-controle"
-        style={{
-          border: `1px solid rgba(${
-            visaoGestao
-              ? '249,115,22'
-              : (rotaComLentidao
-                ? '255,0,85'
-                : '0,255,204')
-          }, 0.3)`,
-
-          boxShadow: `0 10px 40px rgba(0,0,0,0.8),
-            inset 0 0 20px rgba(${
-              visaoGestao
-                ? '249,115,22'
-                : (rotaComLentidao
-                  ? '255,0,85'
-                  : '0,255,204')
-            }, 0.1)`,
-
-          overflowY: "auto",
-          maxHeight: "100vh"
-        }}
-      >
-
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            marginBottom: "15px"
-          }}
-        >
-          <h2
-            style={{
-              margin: 0,
-              fontSize: "1.5rem",
-              fontWeight: "300",
-              display: "flex",
-              alignItems: "center",
-              gap: "10px"
-            }}
+      <div className="chegada" aria-live="polite">
+        <div className="chegada-estacao">
+          <label htmlFor="estacao" className="so-leitor">Estação</label>
+          <select
+            id="estacao"
+            className="seletor-estacao"
+            value={estacaoAtual.id}
+            onChange={(e) => setEstacaoEscolhidaId(e.target.value)}
           >
-            <span
-              style={{
-                display: "inline-block",
-                width: "10px",
-                height: "10px",
-                backgroundColor: corPrincipal,
-                borderRadius: "50%",
-                boxShadow: `0 0 15px ${corPrincipal}`
-              }}
-            />
-
-            SPFF |{" "}
-            <b style={{ color: corPrincipal }}>
-              CCO
-            </b>
-          </h2>
-
-          <button
-            onClick={lerStatusEmVoz}
-            style={{
-              backgroundColor: "rgba(255,255,255,0.1)",
-              border: "1px solid rgba(255,255,255,0.3)",
-              borderRadius: "50%",
-              width: "36px",
-              height: "36px",
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: "1.2rem"
-            }}
-            title="Ouvir Status (Acessibilidade)"
-          >
-            🔊
-          </button>
+            {ESTACOES.map((e) => (
+              <option key={e.id} value={e.id}>{e.nome}</option>
+            ))}
+          </select>
         </div>
 
-        {/* Botão Visão Gestão com Trava de Login */}
-        <button
-          onClick={() => {
-            if (visaoGestao) {
-              setVisaoGestao(false);
-            } else {
-              if (isLoggedIn) {
-                setVisaoGestao(true);
-              } else {
-                setMostrarLogin(true);
-              }
-            }
-          }}
-          style={{
-            width: "100%",
-            padding: "12px",
-            marginBottom: "15px",
-            cursor: "pointer",
-            backgroundColor: visaoGestao
-              ? "rgba(249, 115, 22, 0.3)"
-              : "rgba(255,255,255,0.05)",
-            color: visaoGestao
-              ? "#f97316"
-              : "#cbd5e1",
-            border: `1px solid ${
-              visaoGestao
-                ? "#f97316"
-                : "rgba(255,255,255,0.2)"
-            }`,
-            borderRadius: "8px",
-            fontSize: "0.9rem",
-            fontWeight: "bold",
-            transition: "all 0.3s"
-          }}
-        >
-          {visaoGestao
-            ? "📊 SAIR DA VISÃO GESTÃO"
-            : "📈 Ativar Visão Gestão (Restrito)"}
+        {carregandoFrota ? (
+          <p className="chegada-vazia">Procurando ônibus nesta linha…</p>
+        ) : falhaFrota && frotaAtual.length === 0 ? (
+          <p className="chegada-vazia">Sem conexão com o servidor. Tentando de novo…</p>
+        ) : !chegada ? (
+          <p className="chegada-vazia">Nenhum ônibus nesta linha agora.</p>
+        ) : (
+          <div className="chegada-linha">
+            <p className="chegada-tempo">
+              <span className="chegada-rotulo">Próximo ônibus em</span>
+              <span className="chegada-minutos">{chegada.minutos} min</span>
+            </p>
+            <span className={`selo ${chegada.atraso > 0 ? 'selo-ruim' : 'selo-bom'}`}>
+              <span aria-hidden="true">{chegada.atraso > 0 ? '!' : '✓'}</span>
+              {chegada.atraso > 0 ? `Atrasado ${chegada.atraso} min` : 'No horário'}
+            </span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  const corpoPassageiro = (
+    <div className="painel-corpo">
+      {frotaAtual.length > 0 && (
+        <div className="situacao">
+          <p className={`situacao-via ${rotaComLentidao ? 'via-lenta' : 'via-normal'}`}>
+            <span aria-hidden="true">{rotaComLentidao ? '▲' : '●'}</span>
+            {rotaComLentidao ? 'Lentidão na via' : 'Trânsito normal na via'}
+          </p>
+          <p className="situacao-detalhe">
+            {frotaAtual.length} ônibus na linha
+            {distanciaUsuario !== null && (
+              <> · o mais perto está a {formatarDistancia(distanciaUsuario)} de você</>
+            )}
+          </p>
+        </div>
+      )}
+
+      <div className="acoes">
+        <button type="button" className="botao botao-azul" onClick={ondeEstou} disabled={buscandoGps}>
+          📍 {buscandoGps ? 'Localizando…' : 'Onde estou?'}
         </button>
 
-        {/* Conteúdo: Visão de Operação Normal */}
-        {!visaoGestao ? (
-          <>
-            <div style={{ marginBottom: "15px" }}>
-              <select
-                value={rotaSelecionada}
-                onChange={(e) =>
-                  setRotaSelecionada(e.target.value)
-                }
-                style={{
-                  width: "100%",
-                  padding: "12px",
-                  borderRadius: "8px",
-                  border: `1px solid ${corPrincipal}`,
-                  backgroundColor: "rgba(0,0,0,0.6)",
-                  color: corPrincipal,
-                  fontSize: "1rem",
-                  outline: "none",
-                  cursor: "pointer",
-                  fontWeight: "bold"
-                }}
-              >
-                <option value="BRT_NORTE_ITAVUVU">
-                  Av. Itavuvu (Norte)
-                </option>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={alarmeAtivo}
+          className={`interruptor ${alarmeAtivo ? 'ligado' : ''}`}
+          onClick={alternarAlarme}
+        >
+          <span className="interruptor-texto">
+            <span>Avisar quando o ônibus estiver perto</span>
+            <small>{alarmeAtivo ? 'Ligado: aviso a 1 km de você' : 'Usa sua localização'}</small>
+          </span>
+          <span className="interruptor-trilho" aria-hidden="true"><span /></span>
+        </button>
 
-                <option value="BRT_NORTE_IPANEMA">
-                  Av. Ipanema (Norte)
-                </option>
+        <button type="button" className="botao botao-amarelo" onClick={abrirReporte}>
+          ⚠️ Reportar ocorrência
+        </button>
+      </div>
 
-                <option value="BRT_OESTE_GEN_CARNEIRO">
-                  Av. Gen. Carneiro (Oeste)
-                </option>
+      <div className="legenda">
+        <p className="legenda-titulo">Legenda</p>
+        <ul>
+          <li><span aria-hidden="true">🚌</span> Indo para o Centro</li>
+          <li><span aria-hidden="true">🚍</span> Indo para o bairro</li>
+          <li><span className="amostra amostra-boa" aria-hidden="true" /> No horário</li>
+          <li><span className="amostra amostra-ruim" aria-hidden="true">+3</span> Atrasado (min)</li>
+        </ul>
+      </div>
 
-                <option value="BRT_OESTE_PANNUNZIO">
-                  Av. A. Pannunzio (Oeste)
-                </option>
+      <button type="button" className="link-gestao" onClick={abrirLogin}>
+        Área de gestão
+      </button>
+    </div>
+  );
 
-                <option value="BRT_LESTE_SAO_PAULO">
-                  Avenida São Paulo (Leste)
-                </option>
+  const cabecalhoGestao = (
+    <div className="painel-cabecalho">
+      <div className="linha-rota">
+        <h1 className="titulo-gestao">Área de gestão</h1>
+        <button type="button" className="botao botao-discreto" onClick={() => setVisaoGestao(false)}>
+          Sair
+        </button>
+      </div>
+      <p className="subtitulo-gestao">Desempenho da rede BRT nos últimos 15 minutos</p>
+    </div>
+  );
 
-                <option value="BRT_SUL_WASH_LUIS">
-                  Av. Washington Luís (Sul)
-                </option>
+  const mediaBI = (campo) =>
+    Math.round(dadosBI.reduce((a, b) => a + Number(b[campo]), 0) / dadosBI.length);
 
-                <option value="BRT_SUL_COMITRE">
-                  Av. A. C. Comitre (Sul)
-                </option>
-              </select>
+  const corpoGestao = (
+    <div className="painel-corpo">
+      {dadosBI.length > 0 ? (
+        <>
+          <div className="indicadores">
+            <div className="indicador">
+              <p className="indicador-rotulo">Lotação média</p>
+              <p className="indicador-valor">{mediaBI('lotacao_media')}%</p>
             </div>
-
-            {frotaAtual.length > 0 ? (
-              <div
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "10px"
-                }}
-              >
-                <div
-                  style={{
-                    padding: "10px",
-                    borderRadius: "8px",
-                    backgroundColor: rotaComLentidao
-                      ? "rgba(255, 0, 85, 0.15)"
-                      : "rgba(0, 255, 204, 0.15)",
-                    color: corPrincipal,
-                    borderLeft: `4px solid ${corPrincipal}`,
-                    textAlign: "center",
-                    textTransform: "uppercase",
-                    letterSpacing: "1px"
-                  }}
-                >
-                  <p
-                    style={{
-                      margin: 0,
-                      fontSize: "0.65rem",
-                      opacity: 0.8
-                    }}
-                  >
-                    Status Geral (IA)
-                  </p>
-
-                  <p
-                    style={{
-                      margin: "2px 0 0 0",
-                      fontSize: "1.1rem",
-                      fontWeight: "900"
-                    }}
-                  >
-                    {rotaComLentidao
-                      ? "ALERTA DE LENTIDÃO"
-                      : "FLUXO OTIMIZADO"}
-                  </p>
-                </div>
-
-                <div
-                  style={{
-                    backgroundColor: "rgba(0,0,0,0.4)",
-                    padding: "12px",
-                    borderRadius: "10px",
-                    border: "1px solid rgba(255,255,255,0.05)"
-                  }}
-                >
-                  <p
-                    style={{
-                      margin: "5px 0",
-                      fontSize: "0.85rem",
-                      color: "#cbd5e1"
-                    }}
-                  >
-                    🚌 <b>Veículos operando:</b>{" "}
-                    {frotaAtual.length}
-                  </p>
-
-                  {posicaoUsuario &&
-                    distanciaMetros !== null && (
-                      <p
-                        style={{
-                          margin: "6px 0 0 0",
-                          fontSize: "0.85rem",
-                          color: "#60a5fa",
-                          display: "flex",
-                          justifyContent: "space-between",
-                          borderTop:
-                            "1px solid rgba(255,255,255,0.1)",
-                          paddingTop: "6px"
-                        }}
-                      >
-                        <span>
-                          📍 Distância do veículo:
-                        </span>
-
-                        <span
-                          style={{
-                            fontWeight: "bold"
-                          }}
-                        >
-                          {distanciaMetros} metros
-                        </span>
-                      </p>
-                    )}
-                </div>
-
-                {/* LEGENDA DO MAPA */}
-                <div
-                  style={{
-                    padding: "10px",
-                    backgroundColor: "rgba(0,0,0,0.3)",
-                    border:
-                      "1px solid rgba(255,255,255,0.1)",
-                    borderRadius: "8px",
-                    fontSize: "0.75rem",
-                    color: "#94a3b8"
-                  }}
-                >
-                  <p
-                    style={{
-                      margin: "0 0 5px 0",
-                      fontWeight: "bold",
-                      color: "#cbd5e1",
-                      textTransform: "uppercase"
-                    }}
-                  >
-                    Legenda do Mapa
-                  </p>
-
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      marginBottom: "4px"
-                    }}
-                  >
-                    <span>🚌 Sentido Centro</span>
-                    <span>🚍 Sentido Bairro</span>
-                  </div>
-
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between"
-                    }}
-                  >
-                    <span>
-                      <span style={{ color: "#00ffcc" }}>
-                        🟢
-                      </span>{" "}
-                      Fluxo Livre
-                    </span>
-
-                    <span>
-                      <span style={{ color: "#ff0055" }}>
-                        🔴
-                      </span>{" "}
-                      Atraso/Lentidão
-                    </span>
-                  </div>
-                </div>
-
-                {/* BOTÕES DE CONTROLE ESPACIAL */}
-                <div
-                  style={{
-                    display: "flex",
-                    gap: "10px",
-                    marginTop: "5px"
-                  }}
-                >
-                  <button
-                    onClick={() =>
-                      setSeguirVeiculo(!seguirVeiculo)
-                    }
-                    style={{
-                      padding: "10px",
-                      flex: 1,
-                      cursor: "pointer",
-                      backgroundColor: seguirVeiculo
-                        ? "rgba(255,255,255,0.1)"
-                        : "rgba(0,0,0,0.5)",
-                      color: seguirVeiculo
-                        ? "#fff"
-                        : "#94a3b8",
-                      border:
-                        "1px solid rgba(255,255,255,0.2)",
-                      borderRadius: "8px",
-                      fontSize: "0.85rem"
-                    }}
-                  >
-                    {seguirVeiculo
-                      ? "🔒 Câmera"
-                      : "🔓 Câmera"}
-                  </button>
-
-                  <button
-                    onClick={localizarUsuario}
-                    style={{
-                      padding: "10px",
-                      flex: 1,
-                      cursor: "pointer",
-                      backgroundColor:
-                        "rgba(59, 130, 246, 0.2)",
-                      color: "#60a5fa",
-                      border:
-                        "1px solid rgba(59, 130, 246, 0.5)",
-                      borderRadius: "8px",
-                      fontSize: "0.85rem",
-                      fontWeight: "bold"
-                    }}
-                  >
-                    {buscandoGps
-                      ? "📍 Buscando..."
-                      : "📍 Onde estou?"}
-                  </button>
-                </div>
-
-                <button
-                  onClick={() => {
-                    if (!posicaoUsuario) {
-                      alert(
-                        "Ative a sua localização primeiro para usar o alarme!"
-                      );
-                      return;
-                    }
-
-                    setAlarmeAtivo(!alarmeAtivo);
-                    setAlertaDisparado(false);
-                  }}
-                  style={{
-                    padding: "10px",
-                    width: "100%",
-                    cursor: "pointer",
-                    backgroundColor: alarmeAtivo
-                      ? "rgba(239, 68, 68, 0.3)"
-                      : "rgba(255, 255, 255, 0.05)",
-                    color: alarmeAtivo
-                      ? "#f87171"
-                      : "#94a3b8",
-                    border: `1px solid ${
-                      alarmeAtivo
-                        ? "#ef4444"
-                        : "rgba(255,255,255,0.2)"
-                    }`,
-                    borderRadius: "8px",
-                    fontSize: "0.85rem",
-                    fontWeight: "bold"
-                  }}
-                >
-                  {alarmeAtivo
-                    ? "🔔 Alarme Ligado (< 1km)"
-                    : "🔕 Ligar Alarme de Proximidade"}
-                </button>
-
-                <button
-                  onClick={() =>
-                    setMostrarModalReporte(true)
-                  }
-                  style={{
-                    padding: "10px",
-                    width: "100%",
-                    cursor: "pointer",
-                    backgroundColor:
-                      "rgba(245, 158, 11, 0.2)",
-                    color: "#fbbf24",
-                    border:
-                      "1px solid rgba(245, 158, 11, 0.5)",
-                    borderRadius: "8px",
-                    fontSize: "0.85rem",
-                    fontWeight: "bold"
-                  }}
-                >
-                  ⚠️ Reportar Ocorrência na Rota
-                </button>
-              </div>
-            ) : (
-              <p
-                style={{
-                  textAlign: "center",
-                  color: "#64748b",
-                  fontStyle: "italic",
-                  padding: "10px 0",
-                  fontSize: "0.9rem"
-                }}
-              >
-                Nenhum veículo nesta via.
-              </p>
-            )}
-          </>
-        ) : (
-          /* Conteúdo: Visão de Gestão (Dashboard BI Nível Executivo) */
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              height: "100%",
-              padding: "10px 0"
-            }}
-          >
-            <div
-              style={{
-                textAlign: "center",
-                color: "#f97316",
-                marginBottom: "15px"
-              }}
-            >
-              <p
-                style={{
-                  fontSize: "1.2rem",
-                  fontWeight: "bold",
-                  margin: "0 0 5px 0"
-                }}
-              >
-                📊 Analytics & BI
-              </p>
-
-              <p
-                style={{
-                  fontSize: "0.85rem",
-                  color: "#cbd5e1"
-                }}
-              >
-                Desempenho da Rede BRT (Últimos 15 min)
-              </p>
+            <div className="indicador">
+              <p className="indicador-rotulo">Velocidade média</p>
+              <p className="indicador-valor">{mediaBI('vel_media')} km/h</p>
             </div>
+          </div>
+          <div className="grafico">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={dadosBI} margin={{ top: 10, right: 0, left: -20, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
+                <XAxis dataKey="nome_amigavel" stroke="#94a3b8" fontSize={11} tickMargin={5} />
+                <YAxis stroke="#94a3b8" fontSize={11} />
+                <Tooltip
+                  contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: 8, color: '#fff' }}
+                  itemStyle={{ fontWeight: 600 }}
+                />
+                <Bar dataKey="lotacao_media" name="Lotação (%)" fill="#f97316" radius={[4, 4, 0, 0]} barSize={12} />
+                <Bar dataKey="vel_media" name="Velocidade (km/h)" fill="#2dd4bf" radius={[4, 4, 0, 0]} barSize={12} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </>
+      ) : (
+        <p className="chegada-vazia">Aguardando dados dos sensores…</p>
+      )}
 
-            {dadosBI.length > 0 && (
-              <div
-                style={{
-                  display: "flex",
-                  gap: "10px",
-                  marginBottom: "15px"
-                }}
-              >
-                <div
-                  style={{
-                    flex: 1,
-                    backgroundColor:
-                      "rgba(249, 115, 22, 0.1)",
-                    border:
-                      "1px solid rgba(249, 115, 22, 0.3)",
-                    borderRadius: "8px",
-                    padding: "10px",
-                    textAlign: "center"
-                  }}
-                >
-                  <p
-                    style={{
-                      margin: 0,
-                      fontSize: "0.7rem",
-                      color: "#f97316",
-                      textTransform: "uppercase"
-                    }}
-                  >
-                    Lotação Média
-                  </p>
+      <p className="situacao-detalhe ocorrencias">
+        Ocorrências ativas no mapa: <strong>{mapaCalor.length}</strong>
+      </p>
+      <button type="button" className="botao botao-amarelo" onClick={abrirReporte}>
+        ⚠️ Reportar ocorrência
+      </button>
+    </div>
+  );
 
-                  <p
-                    style={{
-                      margin: "5px 0 0 0",
-                      fontSize: "1.2rem",
-                      fontWeight: "bold",
-                      color: "#fff"
-                    }}
-                  >
-                    {Math.round(
-                      dadosBI.reduce(
-                        (a, b) =>
-                          a + Number(b.lotacao_media),
-                        0
-                      ) / dadosBI.length
-                    )}
-                    %
-                  </p>
-                </div>
+  const cabecalho = visaoGestao ? cabecalhoGestao : cabecalhoPassageiro;
+  const corpo = visaoGestao ? corpoGestao : corpoPassageiro;
+  const mostrarVoltar = !seguirOnibus && !visaoGestao && frotaAtual.length > 0;
+  const local = janelaReporte ? localReporte() : null;
 
-                <div
-                  style={{
-                    flex: 1,
-                    backgroundColor:
-                      "rgba(0, 255, 204, 0.1)",
-                    border:
-                      "1px solid rgba(0, 255, 204, 0.3)",
-                    borderRadius: "8px",
-                    padding: "10px",
-                    textAlign: "center"
-                  }}
-                >
-                  <p
-                    style={{
-                      margin: 0,
-                      fontSize: "0.7rem",
-                      color: "#00ffcc",
-                      textTransform: "uppercase"
-                    }}
-                  >
-                    Velocidade Média
-                  </p>
+  // ============================================================================
+  // 6. RENDERIZAÇÃO
+  // ============================================================================
+  return (
+    <div className={`app ${visaoGestao ? 'modo-gestao' : ''}`}>
+      {/* Marca, hora e clima */}
+      <div className="pilula-topo">
+        <span className="pilula-marca">BRT Sorocaba</span>
+        <span className="pilula-sep" aria-hidden="true" />
+        <span>{horaAtual.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
+        <span className="pilula-sep" aria-hidden="true" />
+        <span>{clima ? `${Math.round(clima.temperature)} °C` : '-- °C'}</span>
+      </div>
 
-                  <p
-                    style={{
-                      margin: "5px 0 0 0",
-                      fontSize: "1.2rem",
-                      fontWeight: "bold",
-                      color: "#fff"
-                    }}
-                  >
-                    {Math.round(
-                      dadosBI.reduce(
-                        (a, b) =>
-                          a + Number(b.vel_media),
-                        0
-                      ) / dadosBI.length
-                    )}{" "}
-                    km/h
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {dadosBI.length > 0 ? (
-              <div
-                style={{
-                  height: "250px",
-                  width: "100%",
-                  backgroundColor: "rgba(0,0,0,0.4)",
-                  borderRadius: "10px",
-                  padding: "10px 10px 0 0"
-                }}
-              >
-                <ResponsiveContainer
-                  width="100%"
-                  height="100%"
-                >
-                  <BarChart
-                    data={dadosBI}
-                    margin={{
-                      top: 10,
-                      right: 0,
-                      left: -20,
-                      bottom: 0
-                    }}
-                  >
-                    <CartesianGrid
-                      strokeDasharray="3 3"
-                      stroke="#334155"
-                      vertical={false}
-                    />
-
-                    <XAxis
-                      dataKey="nome_amigavel"
-                      stroke="#94a3b8"
-                      fontSize={10}
-                      tickMargin={5}
-                    />
-
-                    <YAxis
-                      stroke="#94a3b8"
-                      fontSize={10}
-                    />
-
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: "#0f172a",
-                        border: "1px solid #334155",
-                        borderRadius: "8px",
-                        color: "#fff"
-                      }}
-                      itemStyle={{
-                        fontWeight: "bold"
-                      }}
-                    />
-
-                    <Bar
-                      dataKey="lotacao_media"
-                      name="Lotação (%)"
-                      fill="#f97316"
-                      radius={[4, 4, 0, 0]}
-                      barSize={12}
-                    />
-
-                    <Bar
-                      dataKey="vel_media"
-                      name="Velocidade (km/h)"
-                      fill="#00ffcc"
-                      radius={[4, 4, 0, 0]}
-                      barSize={12}
-                    />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            ) : (
-              <div
-                style={{
-                  textAlign: "center",
-                  padding: "30px 0",
-                  color: "#64748b"
-                }}
-              >
-                <span
-                  style={{
-                    fontSize: "2.5rem"
-                  }}
-                >
-                  📡
-                </span>
-
-                <p
-                  style={{
-                    fontSize: "0.9rem",
-                    marginTop: "15px"
-                  }}
-                >
-                  Aguardando sincronização IoT...
-                </p>
-              </div>
-            )}
-
-            <div
-              style={{
-                marginTop: "auto",
-                paddingTop: "15px"
-              }}
-            >
-              <p
-                style={{
-                  fontSize: "0.85rem",
-                  color: "#cbd5e1",
-                  textAlign: "center",
-                  marginBottom: "10px"
-                }}
-              >
-                ⚠️ Ocorrências Ativas (Mapa):{" "}
-                <b>{mapaCalor.length} áreas</b>
-              </p>
-
-              <button
-                onClick={() =>
-                  setMostrarModalReporte(true)
-                }
-                style={{
-                  padding: "12px",
-                  width: "100%",
-                  cursor: "pointer",
-                  backgroundColor:
-                    "rgba(245, 158, 11, 0.2)",
-                  color: "#fbbf24",
-                  border:
-                    "1px solid rgba(245, 158, 11, 0.5)",
-                  borderRadius: "8px",
-                  fontSize: "0.9rem",
-                  fontWeight: "bold",
-                  textTransform: "uppercase"
-                }}
-              >
-                🚨 Reportar Incidente
-              </button>
-            </div>
+      {/* Aviso na tela */}
+      <div className="area-aviso" role="status" aria-live="polite">
+        {aviso && (
+          <div key={aviso.id} className={`aviso aviso-${aviso.tipo}`}>
+            <span>{aviso.texto}</span>
+            <button type="button" className="aviso-fechar" aria-label="Fechar aviso" onClick={() => setAviso(null)}>
+              ×
+            </button>
           </div>
         )}
       </div>
 
-      {/* MODAL DE ACESSO RESTRITO (LOGIN) */}
-      {mostrarLogin && (
-        <div
-          style={{
-            position: "fixed",
-            top: 0,
-            left: 0,
-            width: "100vw",
-            height: "100vh",
-            backgroundColor: "rgba(0,0,0,0.85)",
-            backdropFilter: "blur(10px)",
-            zIndex: 3000,
-            display: "flex",
-            justifyContent: "center",
-            alignItems: "center"
-          }}
-        >
-          <div
-            style={{
-              backgroundColor: "#0f172a",
-              padding: "35px",
-              borderRadius: "16px",
-              border:
-                "1px solid rgba(249, 115, 22, 0.4)",
-              width: "90%",
-              maxWidth: "380px",
-              color: "#fff",
-              boxShadow:
-                "0 20px 60px rgba(249, 115, 22, 0.15)"
-            }}
-          >
-            <div
-              style={{
-                textAlign: "center",
-                marginBottom: "25px"
-              }}
-            >
-              <span
-                style={{
-                  fontSize: "2.5rem"
-                }}
-              >
-                🔒
-              </span>
-
-              <h2
-                style={{
-                  margin: "10px 0 5px 0",
-                  color: "#f97316",
-                  letterSpacing: "1px"
-                }}
-              >
-                ACESSO RESTRITO
-              </h2>
-
-              <p
-                style={{
-                  margin: 0,
-                  fontSize: "0.85rem",
-                  color: "#94a3b8"
-                }}
-              >
-                Painel Executivo de Mobilidade
-              </p>
-            </div>
-
-            <form
-              onSubmit={handleLogin}
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: "15px"
-              }}
-            >
-              <div>
-                <label
-                  style={{
-                    fontSize: "0.8rem",
-                    color: "#cbd5e1",
-                    textTransform: "uppercase",
-                    fontWeight: "bold"
-                  }}
-                >
-                  Matrícula Governamental
-                </label>
-
-                <input
-                  type="text"
-                  value={username}
-                  onChange={e =>
-                    setUsername(e.target.value)
-                  }
-                  placeholder="Ex: admin"
-                  style={{
-                    width: "100%",
-                    padding: "12px",
-                    marginTop: "5px",
-                    borderRadius: "8px",
-                    backgroundColor:
-                      "rgba(0,0,0,0.6)",
-                    color: "#fff",
-                    border:
-                      "1px solid rgba(255,255,255,0.2)",
-                    outline: "none",
-                    fontSize: "1rem"
-                  }}
-                  autoFocus
-                  required
-                />
-              </div>
-
-              <div>
-                <label
-                  style={{
-                    fontSize: "0.8rem",
-                    color: "#cbd5e1",
-                    textTransform: "uppercase",
-                    fontWeight: "bold"
-                  }}
-                >
-                  Chave de Autenticação
-                </label>
-
-                <input
-                  type="password"
-                  value={password}
-                  onChange={e =>
-                    setPassword(e.target.value)
-                  }
-                  placeholder="••••••••"
-                  style={{
-                    width: "100%",
-                    padding: "12px",
-                    marginTop: "5px",
-                    borderRadius: "8px",
-                    backgroundColor:
-                      "rgba(0,0,0,0.6)",
-                    color: "#fff",
-                    border:
-                      "1px solid rgba(255,255,255,0.2)",
-                    outline: "none",
-                    fontSize: "1rem",
-                    letterSpacing: "2px"
-                  }}
-                  required
-                />
-              </div>
-
-              {erroLogin && (
-                <div
-                  style={{
-                    backgroundColor:
-                      "rgba(239, 68, 68, 0.2)",
-                    padding: "10px",
-                    borderRadius: "8px",
-                    border:
-                      "1px solid rgba(239, 68, 68, 0.5)",
-                    textAlign: "center"
-                  }}
-                >
-                  <p
-                    style={{
-                      color: "#fca5a5",
-                      fontSize: "0.8rem",
-                      margin: 0,
-                      fontWeight: "bold"
-                    }}
-                  >
-                    {erroLogin}
-                  </p>
-                </div>
-              )}
-
-              <div
-                style={{
-                  display: "flex",
-                  gap: "10px",
-                  marginTop: "15px"
-                }}
-              >
-                <button
-                  type="button"
-                  onClick={() =>
-                    setMostrarLogin(false)
-                  }
-                  style={{
-                    flex: 1,
-                    padding: "12px",
-                    backgroundColor: "transparent",
-                    color: "#94a3b8",
-                    border:
-                      "1px solid rgba(255,255,255,0.2)",
-                    borderRadius: "8px",
-                    cursor: "pointer",
-                    fontWeight: "bold",
-                    transition: "0.3s"
-                  }}
-                >
-                  Cancelar
-                </button>
-
-                <button
-                  type="submit"
-                  style={{
-                    flex: 2,
-                    padding: "12px",
-                    backgroundColor: "#f97316",
-                    color: "#fff",
-                    fontWeight: "bold",
-                    border: "none",
-                    borderRadius: "8px",
-                    cursor: "pointer",
-                    boxShadow:
-                      "0 4px 15px rgba(249, 115, 22, 0.4)",
-                    transition: "0.3s"
-                  }}
-                >
-                  Autorizar Acesso
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+      {/* Painel: folha arrastável no celular, coluna fixa no computador */}
+      {celular ? (
+        <FolhaInferior cabecalho={cabecalho} aoMudarAltura={setAlturaFolha}>
+          {corpo}
+        </FolhaInferior>
+      ) : (
+        <aside className="painel-lateral" aria-label="Painel da linha">
+          {cabecalho}
+          {corpo}
+        </aside>
       )}
 
-      {/* MODAL DE REPORTE CIDADÃO */}
-      {mostrarModalReporte && (
-        <div
-          style={{
-            position: "fixed",
-            top: 0,
-            left: 0,
-            width: "100vw",
-            height: "100vh",
-            backgroundColor: "rgba(0,0,0,0.7)",
-            backdropFilter: "blur(5px)",
-            zIndex: 2000,
-            display: "flex",
-            justifyContent: "center",
-            alignItems: "center"
-          }}
+      {mostrarVoltar && (
+        <button
+          type="button"
+          className="botao-voltar"
+          onClick={voltarAoOnibus}
+          style={celular ? { bottom: alturaFolha + 12 } : undefined}
         >
-          <div
-            style={{
-              backgroundColor: "#0f172a",
-              padding: "25px",
-              borderRadius: "16px",
-              border:
-                "1px solid rgba(255,255,255,0.2)",
-              width: "90%",
-              maxWidth: "400px",
-              color: "#fff",
-              fontFamily: "'Segoe UI', sans-serif",
-              boxShadow:
-                "0 20px 50px rgba(0,0,0,0.8)"
-            }}
-          >
-            <h3
-              style={{
-                margin: "0 0 15px 0",
-                color: "#fbbf24"
-              }}
-            >
-              ⚠️ Reportar Ocorrência
-            </h3>
-
-            <form
-              onSubmit={enviarReporte}
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: "12px"
-              }}
-            >
-              <div>
-                <label
-                  style={{
-                    fontSize: "0.8rem",
-                    color: "#94a3b8"
-                  }}
-                >
-                  Tipo de Problema:
-                </label>
-
-                <select
-                  value={tipoProblema}
-                  onChange={e =>
-                    setTipoProblema(e.target.value)
-                  }
-                  style={{
-                    width: "100%",
-                    padding: "10px",
-                    marginTop: "5px",
-                    borderRadius: "8px",
-                    backgroundColor:
-                      "rgba(0,0,0,0.5)",
-                    color: "#fff",
-                    border:
-                      "1px solid rgba(255,255,255,0.2)"
-                  }}
-                >
-                  <option value="Lotação Máxima">
-                    Lotação Máxima
-                  </option>
-
-                  <option value="Ar-condicionado Quebrado">
-                    Ar-condicionado Quebrado
-                  </option>
-
-                  <option value="Acidente na Via">
-                    Acidente na Via
-                  </option>
-                </select>
-              </div>
-
-              <div>
-                <label
-                  style={{
-                    fontSize: "0.8rem",
-                    color: "#94a3b8"
-                  }}
-                >
-                  Comentário Opcional:
-                </label>
-
-                <textarea
-                  value={comentarioReporte}
-                  onChange={e =>
-                    setComentarioReporte(e.target.value)
-                  }
-                  style={{
-                    width: "100%",
-                    padding: "10px",
-                    marginTop: "5px",
-                    borderRadius: "8px",
-                    backgroundColor:
-                      "rgba(0,0,0,0.5)",
-                    color: "#fff",
-                    border:
-                      "1px solid rgba(255,255,255,0.2)",
-                    height: "80px",
-                    resize: "none"
-                  }}
-                />
-              </div>
-
-              <div
-                style={{
-                  display: "flex",
-                  gap: "10px",
-                  marginTop: "10px"
-                }}
-              >
-                <button
-                  type="button"
-                  onClick={() =>
-                    setMostrarModalReporte(false)
-                  }
-                  style={{
-                    flex: 1,
-                    padding: "10px",
-                    backgroundColor:
-                      "rgba(255,255,255,0.1)",
-                    color: "#fff",
-                    border: "none",
-                    borderRadius: "8px",
-                    cursor: "pointer"
-                  }}
-                >
-                  Cancelar
-                </button>
-
-                <button
-                  type="submit"
-                  style={{
-                    flex: 1,
-                    padding: "10px",
-                    backgroundColor: "#fbbf24",
-                    color: "#000",
-                    fontWeight: "bold",
-                    border: "none",
-                    borderRadius: "8px",
-                    cursor: "pointer"
-                  }}
-                >
-                  Enviar Alerta
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+          🚌 Voltar ao ônibus
+        </button>
       )}
 
-      {/* MAPA E CAMADAS DE MARCADORES (React-Leaflet) */}
+      {/* Janela de acesso à gestão */}
+      <Janela
+        aberta={!!janelaLogin}
+        origem={janelaLogin}
+        celular={celular}
+        aoFechar={() => setJanelaLogin(null)}
+        titulo="Área de gestão"
+        destaque="laranja"
+      >
+        <p className="janela-texto">Entre com a sua matrícula para ver o painel de gestão.</p>
+        <form onSubmit={handleLogin} className="formulario">
+          <label>
+            Matrícula
+            <input
+              type="text"
+              value={usuario}
+              onChange={(e) => setUsuario(e.target.value)}
+              autoComplete="username"
+              required
+            />
+          </label>
+          <label>
+            Senha
+            <input
+              type="password"
+              value={senha}
+              onChange={(e) => setSenha(e.target.value)}
+              autoComplete="current-password"
+              required
+            />
+          </label>
+          {erroLogin && <p className="erro-formulario" role="alert">{erroLogin}</p>}
+          <div className="botoes-formulario">
+            <button type="button" className="botao botao-discreto" onClick={() => setJanelaLogin(null)}>
+              Cancelar
+            </button>
+            <button type="submit" className="botao botao-laranja" disabled={entrando}>
+              {entrando ? 'Entrando…' : 'Entrar'}
+            </button>
+          </div>
+        </form>
+      </Janela>
+
+      {/* Janela de reporte */}
+      <Janela
+        aberta={!!janelaReporte}
+        origem={janelaReporte}
+        celular={celular}
+        aoFechar={() => setJanelaReporte(null)}
+        titulo="Reportar ocorrência"
+        destaque="amarelo"
+      >
+        <form onSubmit={enviarReporte} className="formulario">
+          <label>
+            O que está acontecendo?
+            <select value={tipoProblema} onChange={(e) => setTipoProblema(e.target.value)}>
+              <option value="Lotação máxima">Ônibus lotado</option>
+              <option value="Ar-condicionado quebrado">Ar-condicionado quebrado</option>
+              <option value="Acidente na via">Acidente na via</option>
+            </select>
+          </label>
+          <label>
+            Comentário (opcional)
+            <textarea
+              value={comentarioReporte}
+              onChange={(e) => setComentarioReporte(e.target.value)}
+              rows={3}
+            />
+          </label>
+
+          <div className="local-reporte">
+            {local?.origem === 'gps' ? (
+              <p>📍 Local: sua localização atual.</p>
+            ) : (
+              <>
+                <p>📍 Local: o ponto no centro do mapa, porque sua localização está desligada.</p>
+                <button type="button" className="botao botao-discreto" onClick={localizarUsuario} disabled={buscandoGps}>
+                  {buscandoGps ? 'Localizando…' : 'Usar minha localização'}
+                </button>
+              </>
+            )}
+          </div>
+
+          {erroReporte && <p className="erro-formulario" role="alert">{erroReporte}</p>}
+          <div className="botoes-formulario">
+            <button type="button" className="botao botao-discreto" onClick={() => setJanelaReporte(null)}>
+              Cancelar
+            </button>
+            <button type="submit" className="botao botao-amarelo-cheio" disabled={enviandoReporte}>
+              {enviandoReporte ? 'Enviando…' : 'Enviar'}
+            </button>
+          </div>
+        </form>
+      </Janela>
+
+      {/* MAPA */}
       <MapContainer
-        center={[
-          posicaoCentro.lat,
-          posicaoCentro.lon
-        ]}
+        center={[-23.4611, -47.4796]}
         zoom={14}
         zoomControl={false}
-        style={{
-          height: "100%",
-          width: "100%",
-          zIndex: 1
-        }}
+        attributionControl={false}
+        className="mapa"
       >
+        <AttributionControl position="topright" prefix={false} />
         <TileLayer
           className="map-tiles"
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
         />
+        <ControleMapa aoPronto={setMapa} aoArrastar={aoArrastarMapa} />
 
-        {/* 1. MÓDULO DOS ÔNIBUS */}
+        {/* Ônibus */}
         {!visaoGestao &&
           frotaAtual.map((onibus) => {
-            const corLotacao =
-              onibus.lotacao > 80
-                ? '#ef4444'
-                : (onibus.lotacao > 50
-                  ? '#f59e0b'
-                  : '#10b981');
-
+            const lotacao = onibus.lotacao || 0;
+            const textoLotacao = lotacao > 80 ? 'Cheio' : lotacao > 50 ? 'Moderado' : 'Vazio';
+            const atrasado = onibus.atraso_previsto_minutos > 0;
             return (
-              <Marker
-                key={onibus.id_veiculo}
-                position={[
-                  onibus.latitude,
-                  onibus.longitude
-                ]}
-                icon={getIconeOnibus(onibus)}
-              >
+              <Marker key={onibus.id_veiculo} position={[onibus.latitude, onibus.longitude]} icon={iconeOnibus(onibus)}>
                 <Popup>
-                  <b style={{ fontSize: "1.1rem" }}>
-                    Veículo: {onibus.id_veiculo}
-                  </b>
-
-                  <br />
-
-                  <hr
-                    style={{
-                      margin: "5px 0",
-                      borderColor:
-                        "rgba(0,0,0,0.1)"
-                    }}
-                  />
-
-                  <b>Sentido:</b>{" "}
-                  {onibus.sentido}
-
-                  <br />
-
-                  <b>Velocidade:</b>{" "}
-                  {onibus.velocidade_atual_kmh} km/h
-
-                  <br />
-
-                  <div
-                    style={{
-                      marginTop: "5px",
-                      padding: "5px",
-                      backgroundColor: "#f1f5f9",
-                      borderRadius: "5px"
-                    }}
-                  >
-                    <b>Lotação:</b>{" "}
-                    <span
-                      style={{
-                        color: corLotacao,
-                        fontWeight: "bold"
-                      }}
-                    >
-                      {onibus.lotacao || 0}% 👤
-                    </span>
-                  </div>
-
-                  <div
-                    style={{
-                      marginTop: "5px",
-                      padding: "5px",
-                      backgroundColor:
-                        onibus.atraso_previsto_minutos > 0
-                          ? '#dcfce3'
-                          : '#f1f5f9',
-                      borderRadius: "5px"
-                    }}
-                  >
-                    <b>
-                      Onda Verde (Semáforo):
-                    </b>{" "}
-
-                    <span
-                      style={{
-                        color:
-                          onibus.atraso_previsto_minutos > 0
-                            ? '#10b981'
-                            : '#64748b',
-                        fontWeight: "bold"
-                      }}
-                    >
-                      {onibus.atraso_previsto_minutos > 0
-                        ? 'Transmitindo 📡'
-                        : 'Desativado'}
-                    </span>
+                  <div className="popup">
+                    <p className="popup-titulo">Ônibus {onibus.id_veiculo}</p>
+                    <p>Indo para: <b>{onibus.sentido === 'Centro' ? 'Centro' : 'bairro'}</b></p>
+                    <p>Velocidade: <b>{onibus.velocidade_atual_kmh} km/h</b></p>
+                    <p>Lotação: <b>{lotacao}% ({textoLotacao})</b></p>
+                    <p className={`popup-selo ${atrasado ? 'popup-ruim' : 'popup-bom'}`}>
+                      {atrasado ? `Atrasado ${onibus.atraso_previsto_minutos} min` : 'No horário'}
+                    </p>
+                    {atrasado && <p className="popup-nota">Pedindo prioridade nos semáforos para recuperar o atraso.</p>}
                   </div>
                 </Popup>
               </Marker>
             );
           })}
-        {visaoGestao && mapaCalor.map((reporte, index) => (
-          <CircleMarker 
-            key={index} 
-            center={[reporte.latitude, reporte.longitude]} 
-            radius={18} 
-            pathOptions={{ 
-              color: '#f97316', 
-              fillColor: '#f97316', 
-              fillOpacity: 0.7,
-              weight: 2 
-            }}
-          >
-            <Popup>
-              <div style={{ fontFamily: 'sans-serif' }}>
-                <b style={{ fontSize: '1rem', color: '#f97316' }}>⚠️ Alerta da Comunidade</b><hr style={{ margin: '4px 0' }}/>
-                <b>Tipo:</b> {reporte.tipo_problema}<br/>
-                {reporte.comentario && <span><b>Obs:</b> {reporte.comentario}</span>}
-              </div>
-            </Popup>
-          </CircleMarker>
-        ))}
 
-        {/* 2. MÓDULO ETA: Estações e Previsão de Chegada */}
+        {/* Ocorrências (gestão) */}
+        {visaoGestao &&
+          mapaCalor.map((reporte, index) => (
+            <CircleMarker
+              key={index}
+              center={[reporte.latitude, reporte.longitude]}
+              radius={18}
+              pathOptions={{ color: '#f97316', fillColor: '#f97316', fillOpacity: 0.7, weight: 2 }}
+            >
+              <Popup>
+                <div className="popup">
+                  <p className="popup-titulo">Alerta da comunidade</p>
+                  <p>Tipo: <b>{reporte.tipo_problema}</b></p>
+                  {reporte.comentario && <p>Obs.: {reporte.comentario}</p>}
+                </div>
+              </Popup>
+            </CircleMarker>
+          ))}
+
+        {/* Estações */}
         {!visaoGestao &&
-          estacoesBRT.map((estacao) => {
-            let onibusMaisProximo = null;
-            let menorDistancia = Infinity;
-
-            frotaAtual.forEach(onibus => {
-              const distancia = calcularDistancia(
-                estacao.lat,
-                estacao.lon,
-                onibus.latitude,
-                onibus.longitude
-              );
-
-              if (distancia < menorDistancia) {
-                menorDistancia = distancia;
-                onibusMaisProximo = onibus;
-              }
-            });
-
-            let tempoEstimado = "Sem previsão";
-            let corEta = "#64748b";
-
-            if (onibusMaisProximo) {
-              const velocidade =
-                onibusMaisProximo.velocidade_atual_kmh > 0
-                  ? onibusMaisProximo.velocidade_atual_kmh
-                  : 1;
-
-              let minutos = Math.round(
-                (menorDistancia / velocidade) * 60
-              );
-
-              minutos +=
-                onibusMaisProximo.atraso_previsto_minutos;
-
-              if (minutos === 0) {
-                minutos = 1;
-              }
-
-              tempoEstimado = `${minutos} min`;
-
-              corEta =
-                minutos > 10
-                  ? "#ef4444"
-                  : (minutos > 5
-                    ? "#f59e0b"
-                    : "#10b981");
-            }
-
+          ESTACOES.map((estacao) => {
+            const c = calcularChegada(estacao, frotaAtual);
+            const escolhida = estacao.id === estacaoAtual.id;
             return (
               <Marker
                 key={estacao.id}
-                position={[
-                  estacao.lat,
-                  estacao.lon
-                ]}
-                icon={iconeEstacao}
+                position={[estacao.lat, estacao.lon]}
+                icon={iconeEstacao(escolhida)}
+                eventHandlers={{ click: () => setEstacaoEscolhidaId(estacao.id) }}
               >
                 <Popup>
-                  <b style={{ fontSize: "1.1rem" }}>
-                    🚏 {estacao.nome}
-                  </b>
-
-                  <br />
-
-                  <hr
-                    style={{
-                      margin: "5px 0",
-                      borderColor:
-                        "rgba(0,0,0,0.1)"
-                    }}
-                  />
-
-                  <div
-                    style={{
-                      padding: "10px",
-                      backgroundColor: "#f8fafc",
-                      borderRadius: "5px",
-                      textAlign: "center"
-                    }}
-                  >
-                    <b>
-                      Próximo veículo em:
-                    </b>
-
-                    <br />
-
-                    <span
-                      style={{
-                        color: corEta,
-                        fontWeight: "bold",
-                        fontSize: "1.5rem"
-                      }}
-                    >
-                      {tempoEstimado}
-                    </span>
+                  <div className="popup">
+                    <p className="popup-titulo">{estacao.nome}</p>
+                    {c ? (
+                      <>
+                        <p>Próximo ônibus em <b className="popup-grande">{c.minutos} min</b></p>
+                        <p className={`popup-selo ${c.atraso > 0 ? 'popup-ruim' : 'popup-bom'}`}>
+                          {c.atraso > 0 ? `Atrasado ${c.atraso} min` : 'No horário'}
+                        </p>
+                        <p className="popup-nota">
+                          Ônibus {c.onibus.id_veiculo}, a {formatarDistancia(c.distancia)} da estação
+                        </p>
+                      </>
+                    ) : (
+                      <p>Sem previsão no momento.</p>
+                    )}
                   </div>
-
-                  {onibusMaisProximo && (
-                    <div
-                      style={{
-                        marginTop: "10px",
-                        fontSize: "0.85rem",
-                        color: "#64748b"
-                      }}
-                    >
-                      Veículo mais próximo:{" "}
-                      <b>
-                        {onibusMaisProximo.id_veiculo}
-                      </b>
-
-                      <br />
-
-                      Distância real:{" "}
-                      <b>
-                        {(menorDistancia * 1000).toFixed(0)}
-                        {" "}metros
-                      </b>
-                    </div>
-                  )}
                 </Popup>
               </Marker>
             );
           })}
 
-        {/* 3. MÓDULO SEMÁFOROS: Inteligência de Cruzamentos */}
+        {/* Semáforos */}
         {!visaoGestao &&
-          cruzamentosInteligentes.map((semaforo) => {
-            const prioridadeAtivada =
-              frotaAtual.some(
-                onibus =>
-                  onibus.atraso_previsto_minutos > 0
-              );
-
-            const corTexto =
-              prioridadeAtivada
-                ? '#10b981'
-                : '#ef4444';
-
-            return (
-              <Marker
-                key={semaforo.id}
-                position={[
-                  semaforo.lat,
-                  semaforo.lon
-                ]}
-                icon={getIconeSemaforo(
-                  prioridadeAtivada
-                )}
-              >
-                <Popup>
-                  <b style={{ fontSize: "1.1rem" }}>
-                    🚦 Semáforo IoT
-                  </b>
-
-                  <br />
-
-                  <hr
-                    style={{
-                      margin: "5px 0",
-                      borderColor:
-                        "rgba(0,0,0,0.1)"
-                    }}
-                  />
-
-                  <b>Local:</b>{" "}
-                  {semaforo.nome}
-
-                  <br />
-
-                  <b>Sistema BRT:</b>{" "}
-                  <span
-                    style={{
-                      color: corTexto,
-                      fontWeight: "bold"
-                    }}
-                  >
-                    {prioridadeAtivada
-                      ? 'Onda Verde (Prioridade Aberta)'
-                      : 'Ciclo Normal (Fechado)'}
-                  </span>
-                </Popup>
-              </Marker>
-            );
-          })}
-
-        {/* 4. MARCADOR DO USUÁRIO */}
-        {posicaoUsuario &&
-          !visaoGestao && (
+          CRUZAMENTOS.map((semaforo) => (
             <Marker
-              position={[
-                posicaoUsuario.lat,
-                posicaoUsuario.lon
-              ]}
-              icon={IconeUsuario}
+              key={semaforo.id}
+              position={[semaforo.lat, semaforo.lon]}
+              icon={iconeSemaforo(rotaComLentidao)}
             >
               <Popup>
-                Você está aqui
+                <div className="popup">
+                  <p className="popup-titulo">Semáforo {semaforo.nome}</p>
+                  <p>
+                    {rotaComLentidao
+                      ? 'Prioridade para o BRT ligada: o verde fica mais tempo aberto para o ônibus passar.'
+                      : 'Ciclo normal, sem prioridade para o BRT agora.'}
+                  </p>
+                </div>
               </Popup>
             </Marker>
-          )}
+          ))}
 
-        <RecenterAutomatically
-          lat={
-            posicaoUsuario && !seguirVeiculo
-              ? posicaoUsuario.lat
-              : posicaoCentro.lat
-          }
-          lon={
-            posicaoUsuario && !seguirVeiculo
-              ? posicaoUsuario.lon
-              : posicaoCentro.lon
-          }
-          seguirVeiculo={
-            seguirVeiculo && !visaoGestao
-          }
-        />
+        {/* Usuário */}
+        {posicaoUsuario && !visaoGestao && (
+          <Marker position={[posicaoUsuario.lat, posicaoUsuario.lon]} icon={IconeUsuario}>
+            <Popup>Você está aqui</Popup>
+          </Marker>
+        )}
       </MapContainer>
     </div>
   );

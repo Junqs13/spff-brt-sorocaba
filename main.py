@@ -3,6 +3,9 @@ import time
 import random
 import requests
 import threading
+import hmac
+import hashlib
+import secrets
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -29,6 +32,45 @@ app.add_middleware(
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
+
+# ==========================================
+# 🔒 LOGIN DA ÁREA DE GESTÃO
+# A senha fica só no servidor (variáveis de ambiente), nunca no site.
+# Configure no Render: ADMIN_USUARIO, ADMIN_SENHA e TOKEN_SEGREDO.
+# ==========================================
+class LoginIn(BaseModel):
+    usuario: str
+    senha: str
+
+TOKEN_VALIDADE_SEGUNDOS = 8 * 60 * 60
+TOKEN_SEGREDO = os.getenv("TOKEN_SEGREDO") or secrets.token_hex(32)
+
+def gerar_token(usuario: str) -> str:
+    expira = int(time.time()) + TOKEN_VALIDADE_SEGUNDOS
+    carga = f"{usuario}.{expira}"
+    assinatura = hmac.new(TOKEN_SEGREDO.encode(), carga.encode(), hashlib.sha256).hexdigest()
+    return f"{carga}.{assinatura}"
+
+def token_valido(token: str) -> bool:
+    try:
+        usuario, expira, assinatura = token.rsplit(".", 2)
+        esperada = hmac.new(TOKEN_SEGREDO.encode(), f"{usuario}.{expira}".encode(), hashlib.sha256).hexdigest()
+        return hmac.compare_digest(assinatura, esperada) and int(expira) > time.time()
+    except Exception:
+        return False
+
+@app.post("/auth/login")
+def login_gestao(dados: LoginIn):
+    usuario_ok = os.getenv("ADMIN_USUARIO")
+    senha_ok = os.getenv("ADMIN_SENHA")
+    if not usuario_ok or not senha_ok:
+        raise HTTPException(status_code=503, detail="Login de gestão não configurado no servidor.")
+    usuario_certo = hmac.compare_digest(dados.usuario.encode(), usuario_ok.encode())
+    senha_certa = hmac.compare_digest(dados.senha.encode(), senha_ok.encode())
+    if not (usuario_certo and senha_certa):
+        time.sleep(0.5)  # atrasa tentativas em sequência
+        raise HTTPException(status_code=401, detail="Matrícula ou senha incorretas.")
+    return {"token": gerar_token(dados.usuario)}
 
 # ==========================================
 # 1. ROTAS DA API (Para o Frontend ler)
