@@ -54,7 +54,8 @@ def liberar_gravacao_no_aiven() -> bool:
     url = f"https://api.aiven.io/v1/project/{projeto}/service/{servico}/enable-writes"
     resposta = requests.post(url, headers={"Authorization": f"aivenv1 {token}"}, timeout=30)
     print(f"Aiven respondeu {resposta.status_code}: {resposta.text[:200]}")
-    return resposta.ok
+    # 403 "already enabled" quer dizer que uma liberação anterior ainda vale
+    return resposta.ok or "already enabled" in resposta.text
 
 
 def somente_leitura() -> bool:
@@ -71,16 +72,28 @@ def garantir_gravacao() -> bool:
     if not somente_leitura():
         return True
     print("O banco está em modo somente leitura (disco cheio).")
-    if not liberar_gravacao_no_aiven():
-        return False
-    print("Esperando a liberação valer no servidor", end="", flush=True)
-    for _ in range(36):  # até 3 minutos
-        time.sleep(5)
-        print(".", end="", flush=True)
-        if not somente_leitura():
-            print(" liberado.")
+    return liberar_gravacao_no_aiven()
+
+
+def executar_com_insistencia(sql, tentativas=36):
+    """Tenta por até 3 minutos enquanto o servidor ainda recusa gravação."""
+    for i in range(tentativas):
+        try:
+            with db_manager.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(sql)
+                cursor.close()
+            if i:
+                print(" ok.")
             return True
-    print("\nO Aiven ainda não liberou a gravação. Espere alguns minutos e rode de novo.")
+        except Exception as erro:
+            if "read-only" not in str(erro) and "read_only" not in str(erro):
+                raise
+            if i == 0:
+                print("Servidor ainda recusando gravação, tentando de novo", end="", flush=True)
+            print(".", end="", flush=True)
+            time.sleep(5)
+    print("\nO servidor continuou em modo somente leitura.")
     return False
 
 
@@ -195,10 +208,9 @@ def main():
     if not garantir_gravacao():
         sys.exit(1)
 
-    with db_manager.get_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("TRUNCATE TABLE telemetria")
-        cursor.close()
+    if not executar_com_insistencia("TRUNCATE TABLE telemetria"):
+        print(f"Nada foi apagado. A amostra continua salva em {nome}.")
+        sys.exit(1)
     print("Tabela esvaziada, disco liberado.")
 
     criar_indice()
