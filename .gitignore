@@ -7,3 +7,5 @@ frontend/dist/
 __pycache__/
 venv/
 *.pyc
+# Cópias locais do liberar_espaco.py
+telemetria_amostra_*.csv
