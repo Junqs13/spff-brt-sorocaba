@@ -6,6 +6,7 @@ import threading
 import hmac
 import hashlib
 import secrets
+from datetime import datetime, timezone
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -32,6 +33,52 @@ app.add_middleware(
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
+
+# ==========================================
+# ⚙️ POSIÇÕES AO VIVO E HISTÓRICO
+# As posições atuais ficam na memória da API: o mapa continua mostrando
+# os ônibus mesmo se o banco estiver lento, cheio ou fora do ar.
+# O banco guarda só um histórico amostrado, para os gráficos da gestão.
+# ==========================================
+HISTORICO_A_CADA_SEGUNDOS = int(os.getenv("HISTORICO_A_CADA_SEGUNDOS", "120"))
+DIAS_RETENCAO = int(os.getenv("DIAS_RETENCAO", "7"))
+POSICAO_VALIDA_SEGUNDOS = 5 * 60
+
+posicoes_ao_vivo = {}      # id_veiculo -> última posição
+ultimo_historico = {}      # id_veiculo -> momento da última gravação no banco
+trava_posicoes = threading.Lock()
+
+SQL_INSERIR_TELEMETRIA = (
+    "INSERT INTO telemetria (id_veiculo, id_rota, latitude, longitude, sentido, "
+    "velocidade_atual_kmh, atraso_previsto_minutos, acessibilidade_ativa, lotacao) "
+    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)"
+)
+
+def registrar_posicao(dados: dict) -> bool:
+    """Atualiza a posição ao vivo. Devolve True se está na hora de gravar no histórico."""
+    agora = time.time()
+    registro = dict(dados)
+    registro["data_hora"] = datetime.now(timezone.utc).isoformat()
+    registro["_ts"] = agora
+    with trava_posicoes:
+        posicoes_ao_vivo[dados["id_veiculo"]] = registro
+        if agora - ultimo_historico.get(dados["id_veiculo"], 0) >= HISTORICO_A_CADA_SEGUNDOS:
+            ultimo_historico[dados["id_veiculo"]] = agora
+            return True
+    return False
+
+def linha_historico(d: dict) -> tuple:
+    return (d["id_veiculo"], d["id_rota"], d["latitude"], d["longitude"], d["sentido"],
+            d["velocidade_atual_kmh"], d["atraso_previsto_minutos"], d["acessibilidade_ativa"], d["lotacao"])
+
+def gravar_historico(linhas: list):
+    if not linhas:
+        return
+    with db_manager.get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.executemany(SQL_INSERIR_TELEMETRIA, linhas)
+        conn.commit()
+        cursor.close()
 
 # ==========================================
 # 🔒 LOGIN DA ÁREA DE GESTÃO
@@ -101,37 +148,28 @@ def rota_principal():
 
 @app.post("/telemetria")
 def receber_telemetria(dados: TelemetriaIn):
-    try:
-        if dados.lotacao == 0:
-            dados.lotacao = random.randint(15, 95)
-
-        with db_manager.get_connection() as conn:
-            cursor = conn.cursor()
-            sql = "INSERT INTO telemetria (id_veiculo, id_rota, latitude, longitude, sentido, velocidade_atual_kmh, atraso_previsto_minutos, acessibilidade_ativa, lotacao) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)"
-            cursor.execute(sql, (dados.id_veiculo, dados.id_rota, dados.latitude, dados.longitude, dados.sentido, dados.velocidade_atual_kmh, dados.atraso_previsto_minutos, dados.acessibilidade_ativa, dados.lotacao))
-            conn.commit()
-            cursor.close()
-        return {"status": "Sucesso"}
-    except Exception as erro: 
-        raise HTTPException(status_code=500, detail=str(erro))
+    if dados.lotacao == 0:
+        dados.lotacao = random.randint(15, 95)
+    registro = dados.model_dump()
+    if registrar_posicao(registro):
+        try:
+            gravar_historico([linha_historico(registro)])
+        except Exception as erro:
+            # a posição ao vivo já foi atualizada; só o histórico ficou sem esse ponto
+            print(f"⚠️ Histórico não gravado: {erro}")
+    return {"status": "Sucesso"}
 
 @app.get("/veiculos/ativos/{id_rota}")
 def obter_posicoes_da_rota(id_rota: str):
-    try:
-        with db_manager.get_connection() as conn:
-            cursor = conn.cursor(dictionary=True)
-            sql = """
-                SELECT t1.id_veiculo, t1.id_rota, t1.latitude, t1.longitude, t1.sentido, t1.velocidade_atual_kmh, t1.atraso_previsto_minutos, t1.acessibilidade_ativa, t1.lotacao, t1.data_hora
-                FROM telemetria t1
-                INNER JOIN (SELECT id_veiculo, MAX(id) as max_id FROM telemetria WHERE id_rota = %s AND data_hora >= NOW() - INTERVAL 5 MINUTE GROUP BY id_veiculo) t2 
-                ON t1.id_veiculo = t2.id_veiculo AND t1.id = t2.max_id;
-            """
-            cursor.execute(sql, (id_rota,))
-            veiculos = cursor.fetchall() 
-            cursor.close()
-        return {"frota": veiculos} if veiculos else {"frota": []}
-    except Exception as erro: 
-        raise HTTPException(status_code=500, detail=str(erro))
+    limite = time.time() - POSICAO_VALIDA_SEGUNDOS
+    with trava_posicoes:
+        frota = [
+            {k: v for k, v in d.items() if k != "_ts"}
+            for d in posicoes_ao_vivo.values()
+            if d["id_rota"] == id_rota and d["_ts"] >= limite
+        ]
+    frota.sort(key=lambda d: d["id_veiculo"])
+    return {"frota": frota}
 
 class ReporteIn(BaseModel):
     id_rota: str
@@ -320,52 +358,87 @@ def consultar_transito_tomtom(lat, lon):
     return random.randint(30, 45), 0
 
 def rodar_simulador_background():
-    time.sleep(5) 
+    time.sleep(5)
     passo_atual = 0
     while True:
+        para_historico = []
         try:
-            # Usa o novo Context Manager seguro no Simulador
-            with db_manager.get_connection() as conn:
-                cursor = conn.cursor()
-                for nome_rota, veiculos in frotas_brt.items():
-                    for id_veiculo, dados_veiculo in veiculos.items():
-                        ponto = dados_veiculo["coords"][passo_atual]
-                        vel_real, atraso_real = consultar_transito_tomtom(ponto["lat"], ponto["lon"])
-                        
-                        lotacao_simulada = random.randint(15, 95) 
-                        
-                        sql = "INSERT INTO telemetria (id_veiculo, id_rota, latitude, longitude, sentido, velocidade_atual_kmh, atraso_previsto_minutos, acessibilidade_ativa, lotacao) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)"
-                        cursor.execute(sql, (id_veiculo, nome_rota, ponto["lat"], ponto["lon"], dados_veiculo["sentido"], vel_real, atraso_real, 1, lotacao_simulada))
-                conn.commit()
-                cursor.close()
-            
-            passo_atual = (passo_atual + 1) % 10 
-            time.sleep(8) 
+            for nome_rota, veiculos in frotas_brt.items():
+                for id_veiculo, dados_veiculo in veiculos.items():
+                    ponto = dados_veiculo["coords"][passo_atual]
+                    vel_real, atraso_real = consultar_transito_tomtom(ponto["lat"], ponto["lon"])
+                    registro = {
+                        "id_veiculo": id_veiculo,
+                        "id_rota": nome_rota,
+                        "latitude": ponto["lat"],
+                        "longitude": ponto["lon"],
+                        "sentido": dados_veiculo["sentido"],
+                        "velocidade_atual_kmh": vel_real,
+                        "atraso_previsto_minutos": atraso_real,
+                        "acessibilidade_ativa": 1,
+                        "lotacao": random.randint(15, 95),
+                    }
+                    if registrar_posicao(registro):
+                        para_historico.append(linha_historico(registro))
         except Exception as e:
             print(f"Erro no Simulador Nuvem: {e}")
-            time.sleep(10)
+
+        # o banco é só histórico: se falhar, o mapa continua funcionando
+        try:
+            gravar_historico(para_historico)
+        except Exception as e:
+            print(f"⚠️ Histórico não gravado ({len(para_historico)} pontos): {e}")
+
+        passo_atual = (passo_atual + 1) % 10
+        time.sleep(8)
+
+def preparar_banco():
+    """Cria o índice por data, que deixa a limpeza e os gráficos rápidos."""
+    try:
+        with db_manager.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT COUNT(*) FROM information_schema.statistics "
+                "WHERE table_schema = DATABASE() AND table_name = 'telemetria' "
+                "AND index_name = 'idx_telemetria_data_hora'"
+            )
+            if cursor.fetchone()[0] == 0:
+                cursor.execute("CREATE INDEX idx_telemetria_data_hora ON telemetria (data_hora)")
+                print("✅ Índice por data criado na telemetria.")
+            cursor.close()
+    except Exception as e:
+        print(f"⚠️ Não foi possível criar o índice por data: {e}")
+
+def limpar_dados_antigos():
+    """Apaga o que passou de DIAS_RETENCAO dias, em lotes pequenos para não travar o banco."""
+    lote = 5000
+    with db_manager.get_connection() as conn:
+        cursor = conn.cursor()
+        for tabela in ("telemetria", "reportes_comunidade"):
+            total = 0
+            while True:
+                cursor.execute(
+                    f"DELETE FROM {tabela} WHERE data_hora < NOW() - INTERVAL %s DAY LIMIT {lote}",
+                    (DIAS_RETENCAO,),
+                )
+                conn.commit()
+                total += cursor.rowcount
+                if cursor.rowcount < lote:
+                    break
+                time.sleep(1)
+            print(f"🧹 {tabela}: {total} registros com mais de {DIAS_RETENCAO} dias apagados.")
+        cursor.close()
 
 def rotina_limpeza_banco():
-    """
-    Acorda a cada 6 horas e deleta registros de telemetria mais antigos que 2 dias.
-    Isso impede que o banco de dados Aiven atinja o limite de disco (Read-Only Mode).
-    """
-    time.sleep(60) # Espera a API ligar completamente antes de fazer a primeira limpeza
+    """Prepara o banco e, a cada hora, apaga o que passou do prazo de retenção."""
+    time.sleep(60)  # espera a API ligar completamente
+    preparar_banco()
     while True:
         try:
-            with db_manager.get_connection() as conn:
-                cursor = conn.cursor()
-                # Apaga tudo que for mais velho que 48 horas
-                cursor.execute("DELETE FROM telemetria WHERE data_hora < NOW() - INTERVAL 2 DAY")
-                conn.commit()
-                linhas_apagadas = cursor.rowcount
-                cursor.close()
-                print(f"🧹 Manutenção Automática: {linhas_apagadas} registros antigos deletados para liberar espaço.")
+            limpar_dados_antigos()
         except Exception as e:
             print(f"❌ Erro na rotina de limpeza: {e}")
-        
-        # Dorme por 6 horas (21600 segundos) antes de limpar de novo
-        time.sleep(21600)
+        time.sleep(3600)
 
 @app.on_event("startup")
 def ligar_motores():
