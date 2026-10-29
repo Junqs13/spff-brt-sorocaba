@@ -18,6 +18,9 @@ gravada de novo com:
 
 Os reportes da comunidade não são tocados.
 
+Para apagar tudo (telemetria e reportes) sem guardar amostra:
+  python liberar_espaco.py --zerar
+
 Precisa no .env (além dos dados do banco):
   AIVEN_TOKEN=...      (Aiven Console > User information > Tokens > Generate token)
   AIVEN_PROJETO=...    (nome do projeto no Aiven)
@@ -191,9 +194,28 @@ def restaurar(nome):
     print(f"Pronto. Tabela telemetria agora tem {resumo()} linhas.")
 
 
+def zerar():
+    print("Vai apagar TODO o conteúdo de telemetria e reportes_comunidade.")
+    if input("Digite ZERAR para continuar: ").strip().upper() != "ZERAR":
+        print("Nada foi alterado no banco.")
+        return
+    if not garantir_gravacao():
+        sys.exit(1)
+    for tabela in ("telemetria", "reportes_comunidade"):
+        if not executar_com_insistencia(f"TRUNCATE TABLE {tabela}"):
+            print("Nada mais foi apagado.")
+            sys.exit(1)
+        print(f"{tabela} zerada.")
+    criar_indice()
+    print("Pronto. O banco começa do zero a partir de agora.")
+
+
 def main():
     if len(sys.argv) == 3 and sys.argv[1] == "--restaurar":
         restaurar(sys.argv[2])
+        return
+    if len(sys.argv) == 2 and sys.argv[1] == "--zerar":
+        zerar()
         return
 
     print(f"Lendo os últimos {DIAS_RETENCAO} dias (um ponto a cada {AMOSTRA_SEGUNDOS // 60} min por ônibus)...")
